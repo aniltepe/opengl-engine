@@ -169,7 +169,7 @@ int fps = 0;
 
 int main()
 {
-    createScene("/Users/nazimaniltepe/Documents/Projects/OpenGLTest4/OpenGLTest4/scene1.nsce");
+    createScene("/Users/nazimaniltepe/Documents/Projects/opengl-nscene/OpenGLTest4/scene1.nsce");
     
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);

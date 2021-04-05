@@ -280,7 +280,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_STYLE = Automatic;
-				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/OpenGLTest4/OpenGLTest4/include/**";
+				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/opengl-nscene/OpenGLTest4/include/**";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/usr/local/Cellar/glfw/3.3.2/lib,
@@ -297,7 +297,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_STYLE = Automatic;
-				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/OpenGLTest4/OpenGLTest4/include/**";
+				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/opengl-nscene/OpenGLTest4/include/**";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/usr/local/Cellar/glfw/3.3.2/lib,
