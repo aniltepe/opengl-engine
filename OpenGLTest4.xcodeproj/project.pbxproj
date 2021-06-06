@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		10EF2BBB266316FF00AB1C0D /* main4.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 10EF2BBA266316FF00AB1C0D /* main4.cpp */; };
 		10F03C9F25EEE77200DD9640 /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03C9E25EEE77200DD9640 /* OpenGL.framework */; };
 		10F03CA125EEE77900DD9640 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA025EEE77900DD9640 /* Cocoa.framework */; };
 		10F03CA325EEE7F700DD9640 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA225EEE7F700DD9640 /* IOKit.framework */; };
@@ -14,7 +15,6 @@
 		10F03CAF25EEF0F500DD9640 /* libfreetype.6.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA825EEE84B00DD9640 /* libfreetype.6.dylib */; };
 		10F03CB025EEF0F500DD9640 /* libGLEW.2.1.0.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA725EEE84B00DD9640 /* libGLEW.2.1.0.dylib */; };
 		10F03CB125EEF0F500DD9640 /* libglfw.3.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA625EEE84B00DD9640 /* libglfw.3.3.dylib */; };
-		10F1035E26128B8400F2AED6 /* main2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 10F1035D26128B8400F2AED6 /* main2.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -30,6 +30,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		10EF2BBA266316FF00AB1C0D /* main4.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main4.cpp; sourceTree = "<group>"; };
 		10F03C9225EEE76300DD9640 /* OpenGLTest4 */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = OpenGLTest4; sourceTree = BUILT_PRODUCTS_DIR; };
 		10F03C9E25EEE77200DD9640 /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = System/Library/Frameworks/OpenGL.framework; sourceTree = SDKROOT; };
 		10F03CA025EEE77900DD9640 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
@@ -38,8 +39,6 @@
 		10F03CA625EEE84B00DD9640 /* libglfw.3.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libglfw.3.3.dylib; path = ../../../../../usr/local/Cellar/glfw/3.3.2/lib/libglfw.3.3.dylib; sourceTree = "<group>"; };
 		10F03CA725EEE84B00DD9640 /* libGLEW.2.1.0.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libGLEW.2.1.0.dylib; path = ../../../../../usr/local/Cellar/glew/2.1.0_1/lib/libGLEW.2.1.0.dylib; sourceTree = "<group>"; };
 		10F03CA825EEE84B00DD9640 /* libfreetype.6.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfreetype.6.dylib; path = ../../../../../usr/local/Cellar/freetype/2.10.4/lib/libfreetype.6.dylib; sourceTree = "<group>"; };
-		10F10300260A512E00F2AED6 /* scene1.nsce */ = {isa = PBXFileReference; lastKnownFileType = text; path = scene1.nsce; sourceTree = "<group>"; };
-		10F1035D26128B8400F2AED6 /* main2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main2.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -80,8 +79,7 @@
 		10F03C9425EEE76300DD9640 /* OpenGLTest4 */ = {
 			isa = PBXGroup;
 			children = (
-				10F1035D26128B8400F2AED6 /* main2.cpp */,
-				10F10300260A512E00F2AED6 /* scene1.nsce */,
+				10EF2BBA266316FF00AB1C0D /* main4.cpp */,
 			);
 			path = OpenGLTest4;
 			sourceTree = "<group>";
@@ -156,7 +154,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				10F1035E26128B8400F2AED6 /* main2.cpp in Sources */,
+				10EF2BBB266316FF00AB1C0D /* main4.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

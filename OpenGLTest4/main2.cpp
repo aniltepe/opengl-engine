@@ -306,8 +306,6 @@ int main()
                 glUniformMatrix4fv(glGetUniformLocation(scene.joints[i].shader, "model"), 1, GL_FALSE,  value_ptr(model));
                 glUniform3fv(glGetUniformLocation(scene.joints[i].shader, "color"), 1, value_ptr(scene.joints[i].material.diffuse));
                 glBindVertexArray(scene.joints[i].vao);
-                glDrawArrays(GL_LINES, 0, scene.joints[i].vertexCount);
-                glLineWidth(10.0);
             }
         }
         
