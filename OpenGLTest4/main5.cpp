@@ -1,9 +1,10 @@
 //
-//  main4.cpp
+//  main5.cpp
 //  OpenGLTest4
 //
-//  Created by Nazım Anıl Tepe on 30.05.2021.
+//  Created by Nazım Anıl Tepe on 9.06.2021.
 //
+// test of skeletial transform
 
 #include <glew.h>
 #include <glfw3.h>
@@ -90,10 +91,6 @@ struct Camera {
     float maxDistance;
     float moveSpeed;
 };
-struct Skin {
-    vector<unsigned int> indices;
-    vector<float> weights;
-};
 struct Object {
     ObjectType type;
     string name;
@@ -108,7 +105,6 @@ struct Object {
     Material material;
     Transform transform;
     Layout layout;
-    Skin skin;
     string additionalInfo;
 };
 struct Character {
@@ -137,7 +133,6 @@ void resizeFramebuffer(GLFWwindow* window, int width, int height);
 int captureScreenshot();
 vector<unsigned char> base64_decode(string const& encoded_string);
 glm::vec3 rotateVectorAroundAxis(glm::vec3 vector, glm::vec3 axis, float angle);
-void rotateLimb(string limb, int direction, float angle);
 
 template <class T>
 vector<T> processAttributeArray(string s) {
@@ -154,6 +149,8 @@ vector<T> processAttributeArray(string s) {
         values.push_back(strcmp(typeid(T).name(), "unsigned int") == 1 ? stoi(s) : stof(s));
     return values;
 }
+
+bool isLight(Object obj) { return obj.type == ObjectType::Light; }
 
 unsigned int polygonMode = GL_FILL;
 
@@ -203,6 +200,31 @@ int main()
             obj->dictionary.find("trns") == obj->dictionary.end()) {
             obj->dictionary.insert(pair<string, string>("trns", obj->superObject->dictionary.at("trns")));
             obj->transform = obj->superObject->transform;
+            if (obj->type == ObjectType::Joint && obj->superObject->type == ObjectType::Joint) {
+                obj->transform.position = glm::vec3(obj->shader.vertices[0],
+                                                    obj->shader.vertices[1],
+                                                    obj->shader.vertices[2]);
+                obj->transform.front = glm::vec3(0.0, 0.0, 1.0);
+                obj->transform.up = glm::vec3(0.0, 1.0, 0.0);
+                obj->transform.right = glm::vec3(-1.0, 0.0, 0.0);
+//                obj->shader.vertices[0] -= obj->shader.vertices[3];
+//                obj->shader.vertices[1] -= obj->shader.vertices[4];
+//                obj->shader.vertices[2] -= obj->shader.vertices[5];
+//                obj->shader.vertices[3] = 0.0f;
+//                obj->shader.vertices[4] = 0.0f;
+//                obj->shader.vertices[5] = 0.0f;
+//                obj->shader.vertices[3] = obj->shader.vertices[0] - obj->shader.vertices[3];
+//                obj->shader.vertices[4] = obj->shader.vertices[1] - obj->shader.vertices[4];
+//                obj->shader.vertices[5] = obj->shader.vertices[2] - obj->shader.vertices[5];
+                obj->shader.vertices[3] -= obj->shader.vertices[0];
+                obj->shader.vertices[4] -= obj->shader.vertices[1];
+                obj->shader.vertices[5] -= obj->shader.vertices[2];
+                obj->shader.vertices[0] = 0.0f;
+                obj->shader.vertices[1] = 0.0f;
+                obj->shader.vertices[2] = 0.0f;
+                glBindBuffer(GL_ARRAY_BUFFER, obj->shader.vbo);
+                glBufferData(GL_ARRAY_BUFFER, obj->shader.vertices.size() * sizeof(float), &obj->shader.vertices[0], GL_DYNAMIC_DRAW);
+            }
         }
         for (int i = 0; i < obj->subObjects.size(); i++)
             adjustTransform(obj->subObjects[i]);
@@ -212,7 +234,7 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glPointSize(10.0);
+
     
     while (!glfwWindowShouldClose(window))
     {
@@ -355,14 +377,10 @@ void createProperties(Object* objPtr)
             objPtr->material.diffuseTexBase64 = entry.second;
         else if (entry.first == "mtsp")
             objPtr->material.specularTexBase64 = entry.second;
-        else if (entry.first == "w")
-            objPtr->skin.weights = processAttributeArray<float>(entry.second);
-        else if (entry.first == "f")
-            objPtr->shader.faces = processAttributeArray<unsigned int>(entry.second);
-        else if (entry.first == "i")
-            objPtr->skin.indices = processAttributeArray<unsigned int>(entry.second);
         else if (entry.first == "v")
             objPtr->shader.vertices = processAttributeArray<float>(entry.second);
+        else if (entry.first == "f")
+            objPtr->shader.faces = processAttributeArray<unsigned int>(entry.second);
         else if (entry.first == "mtrl") {
             vector<float> sequence = processAttributeArray<float>(entry.second);
             objPtr->material.texture = sequence[0] == 0.0 ? false : true;
@@ -448,7 +466,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "};\n";
             objPtr->shader.fragmentShader += "uniform vec3 cameraPos;\n";
             objPtr->shader.fragmentShader += "uniform Material modelMaterial;\n";
-            objPtr->shader.fragmentShader += "uniform Light lights[" + to_string(count_if(objects.begin(), objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) + "];\n";
+            objPtr->shader.fragmentShader += "uniform Light lights[" + to_string(count_if(objects.begin(), objects.end(), isLight)) + "];\n";
             objPtr->shader.fragmentShader += "vec3 CalculateLight(Light light, vec3 normal, vec3 viewDir, vec3 fragPos);\n";
             objPtr->shader.fragmentShader += "void main() {\n";
             objPtr->shader.fragmentShader += "vec3 norm = normalize(Normal);\n";
@@ -539,10 +557,25 @@ void setBuffers(Object* objPtr)
             glGenBuffers(1, &objPtr->shader.ebo);
         glBindVertexArray(objPtr->shader.vao);
         glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.vbo);
-        if (objPtr->type == ObjectType::Joint && objPtr->superObject->type == ObjectType::Joint)
+        if (objPtr->type == ObjectType::Joint && objPtr->superObject->type == ObjectType::Joint) {
             objPtr->shader.vertices.insert(objPtr->shader.vertices.begin(),
                                            objPtr->superObject->shader.vertices.end() - 3,
                                            objPtr->superObject->shader.vertices.end());
+//            vector<float> newVertices;
+//            objPtr->shader.vertices.insert(newVertices.begin(),
+//                                           objPtr->superObject->shader.vertices.end() - 3,
+//                                           objPtr->superObject->shader.vertices.end());
+//            newVertices.push_back(objPtr->superObject->shader.vertices[0] - objPtr->shader.vertices[0]);
+//            newVertices.push_back(objPtr->superObject->shader.vertices[1] - objPtr->shader.vertices[1]);
+//            newVertices.push_back(objPtr->superObject->shader.vertices[2] - objPtr->shader.vertices[2]);
+//            newVertices.push_back(0.0);
+//            newVertices.push_back(0.0);
+//            newVertices.push_back(0.0);
+//            objPtr->transform.position = glm::vec3(objPtr->shader.vertices[0],
+//                                                   objPtr->shader.vertices[1],
+//                                                   objPtr->shader.vertices[2]);
+//            objPtr->shader.vertices = newVertices;
+        }
         glBufferData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * sizeof(float), &objPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
         if (objPtr->shader.faces.size() > 0) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, objPtr->shader.ebo);
@@ -658,7 +691,7 @@ void drawScene(Object* objPtr)
             }
             vector<Object>::iterator it = objects.begin();
             int index = 0;
-            while ((it = find_if(it, objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) != objects.end()) {
+            while ((it = find_if(it, objects.end(), isLight)) != objects.end()) {
                 glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].lightType").c_str()), static_cast<int>(it->objectPtr->light.lightType));
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].direction").c_str()), 1, value_ptr(it->objectPtr->transform.front));
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].position").c_str()), 1, value_ptr(it->objectPtr->transform.position));
@@ -680,16 +713,12 @@ void drawScene(Object* objPtr)
         
         glBindVertexArray(objPtr->shader.vao);
         
-        if (objPtr->type == ObjectType::Joint) {
+        if (objPtr->type == ObjectType::Joint)
             glDrawArrays(GL_LINES, 0, objPtr->shader.vertexCount);
-            glDrawArrays(GL_POINTS, 0, 1);
-        }
         else if (objPtr->shader.faces.size() > 0)
             glDrawElements(GL_TRIANGLES, objPtr->shader.vertexCount, GL_UNSIGNED_INT, 0);
         else
             glDrawArrays(GL_TRIANGLES, 0, objPtr->shader.vertexCount);
-        
-        glBindVertexArray(0);
     }
     for (int i = 0; i < objPtr->subObjects.size(); i++)
         drawScene(objPtr->subObjects[i]);
@@ -803,25 +832,60 @@ void processContinuousInput(GLFWwindow* window)
         cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.front, 0.5f);
     }
 
-    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) {
-        float angle = 1.0f;
-        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
-            angle *= -1.0;
-        rotateLimb("hips", 0, angle);
-    }
-    
     if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
-        float angle = 1.0f;
+        float move = 1.0f;
         if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
-            angle *= -1.0;
-        rotateLimb("hips", 1, angle);
+            move *= -1.0;
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.name ==     "leftforearm"; });
+
+        function<void(Object*)> lambdaFunc = [move, &lambdaFunc](Object* obj) -> void {
+//            obj->objectPtr->transform.position.x += move;
+            obj->objectPtr->transform.up = rotateVectorAroundAxis(obj->objectPtr->transform.up, obj->objectPtr->transform.front, move);
+            obj->objectPtr->transform.right = rotateVectorAroundAxis(obj->objectPtr->transform.right, obj->objectPtr->transform.front, move);
+            for (Object* ptr : obj->objectPtr->subObjects)
+                lambdaFunc(ptr);
+        };
+
+        lambdaFunc(it->objectPtr);
     }
     
     if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS) {
         float angle = 1.0f;
         if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
             angle *= -1.0;
-        rotateLimb("hips", 2, angle);
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.name ==     "leftforearm"; });
+        
+        glm::vec3 ax = it->objectPtr->transform.front;
+        glm::vec3 jo = glm::vec3(it->objectPtr->shader.vertices[0],
+                                it->objectPtr->shader.vertices[1],
+                                it->objectPtr->shader.vertices[2]);
+        function<void(Object*)> lambdaFunc = [it, jo, ax, angle, &lambdaFunc](Object* obj) -> void {
+            glm::vec3 beg = glm::vec3(obj->objectPtr->shader.vertices[0],
+                                    obj->objectPtr->shader.vertices[1],
+                                    obj->objectPtr->shader.vertices[2]);
+            if (jo != beg) {
+                beg = rotateVectorAroundAxis(beg - jo, ax, angle);
+                beg += jo;
+            }
+            glm::vec3 end = glm::vec3(obj->objectPtr->shader.vertices[3],
+                                    obj->objectPtr->shader.vertices[4],
+                                    obj->objectPtr->shader.vertices[5]);
+            end = rotateVectorAroundAxis(end - jo, ax, angle);
+            end += jo;
+            obj->objectPtr->shader.vertices.clear();
+            obj->objectPtr->shader.vertices.push_back(beg.x);
+            obj->objectPtr->shader.vertices.push_back(beg.y);
+            obj->objectPtr->shader.vertices.push_back(beg.z);
+            obj->objectPtr->shader.vertices.push_back(end.x);
+            obj->objectPtr->shader.vertices.push_back(end.y);
+            obj->objectPtr->shader.vertices.push_back(end.z);
+            glBindBuffer(GL_ARRAY_BUFFER, obj->objectPtr->shader.vbo);
+            glBufferData(GL_ARRAY_BUFFER, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+            for (Object* ptr : obj->objectPtr->subObjects)
+                lambdaFunc(ptr);
+        };
+        
+        lambdaFunc(it->objectPtr);
     }
     
     if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
@@ -920,62 +984,3 @@ glm::vec3 rotateVectorAroundAxis(glm::vec3 vector, glm::vec3 axis, float angle)
     return vector * cos(glm::radians(angle)) + cross(axis, vector) * sin(glm::radians(angle)) + axis * dot(axis, vector) * (1.0f - cos(glm::radians(angle)));
 }
 
-void rotateLimb(string limb, int direction, float angle)
-{
-    vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [limb] (Object obj) { return obj.name == limb; });
-    
-    size_t verLen = it->objectPtr->shader.vertices.size();
-    glm::vec3 jo = glm::vec3(it->objectPtr->shader.vertices[verLen - 3],
-                            it->objectPtr->shader.vertices[verLen - 2],
-                            it->objectPtr->shader.vertices[verLen - 1]);
-    glm::vec3 axis = direction == 0 ? it->objectPtr->transform.front : direction == 1 ? it->objectPtr->transform.up : it->objectPtr->transform.right;
-    Object* rootPtr = it->objectPtr;
-    while (rootPtr->type != ObjectType::Model)
-        rootPtr = rootPtr->superObject;
-    
-    function<void(Object*)> lambdaFunc = [rootPtr, jo, axis, angle, &lambdaFunc](Object* obj) -> void {
-        size_t verLen = obj->objectPtr->shader.vertices.size();
-        glm::vec3 end = glm::vec3(obj->objectPtr->shader.vertices[verLen - 3],
-                                obj->objectPtr->shader.vertices[verLen - 2],
-                                obj->objectPtr->shader.vertices[verLen - 1]);
-        if (jo != end) {
-            glm::vec3 beg = glm::vec3(obj->objectPtr->shader.vertices[0],
-                                      obj->objectPtr->shader.vertices[1],
-                                      obj->objectPtr->shader.vertices[2]);
-            beg = rotateVectorAroundAxis(beg - jo, axis, angle);
-            beg += jo;
-            end = rotateVectorAroundAxis(end - jo, axis, angle);
-            end += jo;
-            obj->objectPtr->shader.vertices.clear();
-            obj->objectPtr->shader.vertices.push_back(beg.x);
-            obj->objectPtr->shader.vertices.push_back(beg.y);
-            obj->objectPtr->shader.vertices.push_back(beg.z);
-            obj->objectPtr->shader.vertices.push_back(end.x);
-            obj->objectPtr->shader.vertices.push_back(end.y);
-            obj->objectPtr->shader.vertices.push_back(end.z);
-            glBindBuffer(GL_ARRAY_BUFFER, obj->objectPtr->shader.vbo);
-            glBufferData(GL_ARRAY_BUFFER, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
-        }
-        
-        
-        for (int i = 0; i < obj->objectPtr->skin.indices.size(); i++) {
-            int attCount = rootPtr->material.texture ? 8 : 6;
-            unsigned int indice = obj->objectPtr->skin.indices[i];
-            glm::vec3 pnt = glm::vec3(rootPtr->shader.vertices[indice * attCount],
-                                      rootPtr->shader.vertices[indice * attCount + 1],
-                                      rootPtr->shader.vertices[indice * attCount + 2]);
-            pnt = rotateVectorAroundAxis(pnt - jo, axis, angle * obj->objectPtr->skin.weights[i]);
-            pnt += jo;
-            rootPtr->shader.vertices[indice * attCount] = pnt.x;
-            rootPtr->shader.vertices[indice * attCount + 1] = pnt.y;
-            rootPtr->shader.vertices[indice * attCount + 2] = pnt.z;
-        }
-        
-        for (Object* ptr : obj->objectPtr->subObjects)
-            lambdaFunc(ptr);
-    };
-    lambdaFunc(it->objectPtr);
-    
-    glBindBuffer(GL_ARRAY_BUFFER, rootPtr->shader.vbo);
-    glBufferData(GL_ARRAY_BUFFER, rootPtr->shader.vertices.size() * sizeof(float), &rootPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
-}
