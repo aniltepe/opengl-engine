@@ -90,9 +90,18 @@ struct Camera {
     float maxDistance;
     float moveSpeed;
 };
-struct Skin {
+struct Bone {
     vector<unsigned int> indices;
     vector<float> weights;
+    float rollDegree = 0.0f;
+    glm::vec3 locationOffset = glm::vec3(0.0f);
+    glm::vec3 rotationDegrees = glm::vec3(0.0f);
+    glm::vec3 rotationXAxis;
+    glm::vec3 rotationYAxis;
+    glm::vec3 rotationZAxis;
+    glm::vec3 referenceXAxis;
+    glm::vec3 referenceYAxis;
+    glm::vec3 referenceZAxis;
 };
 struct Object {
     ObjectType type;
@@ -108,7 +117,7 @@ struct Object {
     Material material;
     Transform transform;
     Layout layout;
-    Skin skin;
+    Bone bone;
     string additionalInfo;
 };
 struct Character {
@@ -137,7 +146,8 @@ void resizeFramebuffer(GLFWwindow* window, int width, int height);
 int captureScreenshot();
 vector<unsigned char> base64_decode(string const& encoded_string);
 glm::vec3 rotateVectorAroundAxis(glm::vec3 vector, glm::vec3 axis, float angle);
-void rotateLimb(string limb, int direction, float angle);
+void rotateJoint(string joint, glm::vec3 degrees);
+void locateJoint(string joint, glm::vec3 offset);
 
 template <class T>
 vector<T> processAttributeArray(string s) {
@@ -203,6 +213,18 @@ int main()
             obj->dictionary.find("trns") == obj->dictionary.end()) {
             obj->dictionary.insert(pair<string, string>("trns", obj->superObject->dictionary.at("trns")));
             obj->transform = obj->superObject->transform;
+            if (obj->type == ObjectType::Joint) {
+                obj->bone.rotationXAxis = glm::vec3(obj->transform.right);
+                obj->bone.rotationYAxis = glm::vec3(obj->transform.up);
+                obj->bone.rotationZAxis = glm::vec3(obj->transform.front);
+                
+                obj->bone.rotationXAxis = rotateVectorAroundAxis(obj->bone.rotationXAxis, obj->bone.rotationYAxis, obj->bone.rollDegree * -1.0f);
+                obj->bone.rotationZAxis = rotateVectorAroundAxis(obj->bone.rotationZAxis, obj->bone.rotationYAxis, obj->bone.rollDegree * -1.0f);
+                
+                obj->bone.referenceXAxis = glm::vec3(obj->bone.rotationXAxis);
+                obj->bone.referenceYAxis = glm::vec3(obj->bone.rotationYAxis);
+                obj->bone.referenceZAxis = glm::vec3(obj->bone.rotationZAxis);
+            }
         }
         for (int i = 0; i < obj->subObjects.size(); i++)
             adjustTransform(obj->subObjects[i]);
@@ -213,6 +235,55 @@ int main()
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPointSize(10.0);
+    
+    
+    /*
+     pose test blender male.dae frame 56
+    */
+    
+    rotateJoint("hips", glm::vec3(1.87, -45.2, -8.11));
+    locateJoint("hips", glm::vec3(5.35, -3.90, 0.43));
+    rotateJoint("spine", glm::vec3(3.65, -5.08, 0.181));
+    rotateJoint("spine1", glm::vec3(7.33, -10.3, -0.07));
+    rotateJoint("spine2", glm::vec3(7.33, -10.3, -0.07));
+    rotateJoint("neck", glm::vec3(-7.03, -4.75, -3.26));
+    rotateJoint("head", glm::vec3(-0.305, 7.06, 0.318));
+    rotateJoint("leftshoulder", glm::vec3(-0.226, 11.7, -0.399));
+    rotateJoint("leftarm", glm::vec3(-21.4, -39.4, 7.1));
+    rotateJoint("leftforearm", glm::vec3(-46.4, -35.8, -19.1));
+    rotateJoint("lefthand", glm::vec3(0.695, -27.9, 26.5));
+    rotateJoint("lefthandthumb1", glm::vec3(-25.9, 30.4, 7.61));
+    rotateJoint("lefthandthumb2", glm::vec3(1.62, 25.3, -3.55));
+    rotateJoint("lefthandindex1", glm::vec3(-8.66, 2.1, -16.3));
+    rotateJoint("lefthandindex2", glm::vec3(5.77, -1.78, 11.6));
+    rotateJoint("lefthandmiddle1", glm::vec3(-24.2, -3.83, -2.44));
+    rotateJoint("lefthandmiddle2", glm::vec3(5.63, -2.51, 11.7));
+    rotateJoint("lefthandring1", glm::vec3(8.57, -2.35, 18.0));
+    rotateJoint("lefthandring2", glm::vec3(18.4, -6.67, 20.1));
+    rotateJoint("rightshoulder", glm::vec3(0.57, 9.85, 0.155));
+    rotateJoint("rightarm", glm::vec3(1.48, 31.0, 2.19));
+    rotateJoint("rightforearm", glm::vec3(-44.4, 33.2, 17.5));
+    rotateJoint("righthand", glm::vec3(-0.027, 20.5, -23.9));
+    rotateJoint("righthandthumb1", glm::vec3(-22.8, 20.3, -6.63));
+    rotateJoint("righthandthumb2", glm::vec3(-2.99, -2.33, 3.38));
+    rotateJoint("righthandindex1", glm::vec3(17.4, -6.99, 23.8));
+    rotateJoint("righthandindex2", glm::vec3(-9.22, -0.589, 5.0));
+    rotateJoint("righthandmiddle1", glm::vec3(-19.1, -2.69, 28.4));
+    rotateJoint("righthandmiddle2", glm::vec3(6.66, 2.99, -14.8));
+    rotateJoint("righthandring1", glm::vec3(-22.2, -12.3, -18.2));
+    rotateJoint("righthandring2", glm::vec3(19.5, 7.82, -21.3));
+    rotateJoint("leftupleg", glm::vec3(0.231, 33.8, -21.0));
+    rotateJoint("leftleg", glm::vec3(5.31, -0.467, 51.3));
+    rotateJoint("leftfoot", glm::vec3(33.3, 12.0, 7.71));
+    rotateJoint("lefttoebase", glm::vec3(0.031, -0.026, -0.026));
+    rotateJoint("rightupleg", glm::vec3(27.1, 23.0, 19.5));
+    rotateJoint("rightleg", glm::vec3(0.168, -1.19, -41.4));
+    rotateJoint("rightfoot", glm::vec3(13.8, 4.71, -9.73));
+    rotateJoint("righttoebase", glm::vec3(0.004, -0.11, -0.262));
+    
+    /*
+     pose test blender male.dae frame 56
+    */
     
     while (!glfwWindowShouldClose(window))
     {
@@ -356,13 +427,15 @@ void createProperties(Object* objPtr)
         else if (entry.first == "mtsp")
             objPtr->material.specularTexBase64 = entry.second;
         else if (entry.first == "w")
-            objPtr->skin.weights = processAttributeArray<float>(entry.second);
+            objPtr->bone.weights = processAttributeArray<float>(entry.second);
         else if (entry.first == "f")
             objPtr->shader.faces = processAttributeArray<unsigned int>(entry.second);
         else if (entry.first == "i")
-            objPtr->skin.indices = processAttributeArray<unsigned int>(entry.second);
+            objPtr->bone.indices = processAttributeArray<unsigned int>(entry.second);
         else if (entry.first == "v")
             objPtr->shader.vertices = processAttributeArray<float>(entry.second);
+        else if (entry.first == "roll")
+            objPtr->bone.rollDegree = stof(entry.second);
         else if (entry.first == "mtrl") {
             vector<float> sequence = processAttributeArray<float>(entry.second);
             objPtr->material.texture = sequence[0] == 0.0 ? false : true;
@@ -562,7 +635,7 @@ void setBuffers(Object* objPtr)
             if (objPtr->material.texture) {
                 int width, height, nrChannels;
                 vector<unsigned char> decoded = base64_decode(objPtr->material.diffuseTexBase64);
-                unsigned char *data = stbi_load_from_memory(&decoded[0], decoded.size(), &width, &height, &nrChannels, 0);
+                unsigned char *data = stbi_load_from_memory(&decoded[0], int(decoded.size()), &width, &height, &nrChannels, 0);
                 glGenTextures(1, &objPtr->material.diffuseTex);
                 glBindTexture(GL_TEXTURE_2D, objPtr->material.diffuseTex);
                 glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -576,7 +649,7 @@ void setBuffers(Object* objPtr)
 
                 if (objPtr->material.specularTexBase64 != "") {
                     vector<unsigned char> decoded_ = base64_decode(objPtr->material.specularTexBase64);
-                    unsigned char *data_ = stbi_load_from_memory(&decoded_[0], decoded_.size(), &width, &height, &nrChannels, 0);
+                    unsigned char *data_ = stbi_load_from_memory(&decoded_[0], int(decoded_.size()), &width, &height, &nrChannels, 0);
                     glGenTextures(1, &objPtr->material.specularTex);
                     glBindTexture(GL_TEXTURE_2D, objPtr->material.specularTex);
                     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -601,13 +674,13 @@ void setBuffers(Object* objPtr)
             glBindVertexArray(0);
         }
         if (objPtr->type == ObjectType::Joint)
-            objPtr->shader.vertexCount = objPtr->shader.vertices.size() / 3;
+            objPtr->shader.vertexCount = int(objPtr->shader.vertices.size() / 3);
         else if (objPtr->shader.faces.size() > 0)
-            objPtr->shader.vertexCount = objPtr->shader.faces.size();
+            objPtr->shader.vertexCount = int(objPtr->shader.faces.size());
         else if (objPtr->type == ObjectType::Model)
-            objPtr->shader.vertexCount = objPtr->material.texture ? objPtr->shader.vertices.size() / 8 : objPtr->shader.vertices.size() / 6;
+            objPtr->shader.vertexCount = objPtr->material.texture ? int(objPtr->shader.vertices.size() / 8) : int(objPtr->shader.vertices.size() / 6);
         else
-            objPtr->shader.vertexCount = objPtr->shader.vertices.size() / 3;
+            objPtr->shader.vertexCount = int(objPtr->shader.vertices.size() / 3);
     }
     
     for (int i = 0; i < objPtr->subObjects.size(); i++)
@@ -722,7 +795,7 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
         glfwSetWindowShouldClose(window, true);
     }
     
-    if (key == GLFW_KEY_M && action == GLFW_PRESS) {
+    if (key == GLFW_KEY_V && action == GLFW_PRESS) {
         if (polygonMode == GL_FILL)
             polygonMode = GL_POINT;
         else if (polygonMode == GL_POINT)
@@ -731,8 +804,13 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
             polygonMode = GL_FILL;
     }
     
-    if (key == GLFW_KEY_B && action == GLFW_PRESS) {
+    if (key == GLFW_KEY_C && action == GLFW_PRESS) {
         captureScreenshot();
+    }
+    
+    if (key == GLFW_KEY_L && action == GLFW_PRESS) {
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.name == "leftshoulder"; });
+        rotateJoint("leftshoulder", it->objectPtr->bone.rotationDegrees * -1.0f);
     }
     
     if ((key == GLFW_KEY_1 && action == GLFW_PRESS) ||
@@ -777,7 +855,6 @@ void processContinuousInput(GLFWwindow* window)
         cameraPtr->transform.position = cameraPtr->transform.position - offset;
     }
 
-
     if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
         cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.right, 0.5f);
         cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.right, 0.5f);
@@ -802,27 +879,6 @@ void processContinuousInput(GLFWwindow* window)
         cameraPtr->transform.right = rotateVectorAroundAxis(cameraPtr->transform.right, cameraPtr->transform.front, 0.5f);
         cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.front, 0.5f);
     }
-
-    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) {
-        float angle = 1.0f;
-        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
-            angle *= -1.0;
-        rotateLimb("hips", 0, angle);
-    }
-    
-    if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
-        float angle = 1.0f;
-        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
-            angle *= -1.0;
-        rotateLimb("hips", 1, angle);
-    }
-    
-    if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS) {
-        float angle = 1.0f;
-        if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
-            angle *= -1.0;
-        rotateLimb("hips", 2, angle);
-    }
     
     if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
         if (cameraPtr->camera.fov < 180.0f)
@@ -831,6 +887,44 @@ void processContinuousInput(GLFWwindow* window)
     if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
         if (cameraPtr->camera.fov > 0.0f)
             cameraPtr->camera.fov -= 0.5f;
+    }
+
+//    if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS) {
+//        float angle = 2.0f;
+//        if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS)
+//            angle *= -1.0;
+//        rotateJoint("leftshoulder", glm::vec3(angle, 0.0, 0.0));
+//    }
+//    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) {
+//        float angle = 2.0f;
+//        if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS)
+//            angle *= -1.0;
+//        rotateJoint("leftshoulder", glm::vec3(0.0, angle, 0.0));
+//    }
+//    if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS) {
+//        float angle = 2.0f;
+//        if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)
+//            angle *= -1.0;
+//        rotateJoint("leftshoulder", glm::vec3(0.0, 0.0, angle));
+//    }
+    
+    if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS) {
+        float offset = 1.0f;
+        if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS)
+            offset *= -1.0;
+        locateJoint("leftarm", glm::vec3(offset, 0.0, 0.0));
+    }
+    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) {
+        float offset = 1.0f;
+        if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS)
+            offset *= -1.0;
+        locateJoint("leftarm", glm::vec3(0.0, offset, 0.0));
+    }
+    if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS) {
+        float offset = 1.0f;
+        if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)
+            offset *= -1.0;
+        locateJoint("leftarm", glm::vec3(0.0, 0.0, offset));
     }
 }
 
@@ -920,24 +1014,27 @@ glm::vec3 rotateVectorAroundAxis(glm::vec3 vector, glm::vec3 axis, float angle)
     return vector * cos(glm::radians(angle)) + cross(axis, vector) * sin(glm::radians(angle)) + axis * dot(axis, vector) * (1.0f - cos(glm::radians(angle)));
 }
 
-void rotateLimb(string limb, int direction, float angle)
+void rotateJoint(string joint, glm::vec3 degrees)
 {
-    vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [limb] (Object obj) { return obj.name == limb; });
+    degrees *= -1.0f;
+    vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [joint] (Object obj) { return obj.name == joint; });
     
-    size_t verLen = it->objectPtr->shader.vertices.size();
-    glm::vec3 jo = glm::vec3(it->objectPtr->shader.vertices[verLen - 3],
-                            it->objectPtr->shader.vertices[verLen - 2],
-                            it->objectPtr->shader.vertices[verLen - 1]);
-    glm::vec3 axis = direction == 0 ? it->objectPtr->transform.front : direction == 1 ? it->objectPtr->transform.up : it->objectPtr->transform.right;
+    size_t vertLeng = it->objectPtr->shader.vertices.size();
+    glm::vec3 jo = glm::vec3(it->objectPtr->shader.vertices[vertLeng - 3],
+                            it->objectPtr->shader.vertices[vertLeng - 2],
+                            it->objectPtr->shader.vertices[vertLeng - 1]);
+    glm::vec3 axis;
+    float angle;
+    
     Object* rootPtr = it->objectPtr;
     while (rootPtr->type != ObjectType::Model)
         rootPtr = rootPtr->superObject;
     
-    function<void(Object*)> lambdaFunc = [rootPtr, jo, axis, angle, &lambdaFunc](Object* obj) -> void {
-        size_t verLen = obj->objectPtr->shader.vertices.size();
-        glm::vec3 end = glm::vec3(obj->objectPtr->shader.vertices[verLen - 3],
-                                obj->objectPtr->shader.vertices[verLen - 2],
-                                obj->objectPtr->shader.vertices[verLen - 1]);
+    function<void(Object*)> lambdaFunc = [rootPtr, jo, &axis, &angle, &lambdaFunc](Object* obj) -> void {
+        size_t vertLeng = obj->objectPtr->shader.vertices.size();
+        glm::vec3 end = glm::vec3(obj->objectPtr->shader.vertices[vertLeng - 3],
+                                obj->objectPtr->shader.vertices[vertLeng - 2],
+                                obj->objectPtr->shader.vertices[vertLeng - 1]);
         if (jo != end) {
             glm::vec3 beg = glm::vec3(obj->objectPtr->shader.vertices[0],
                                       obj->objectPtr->shader.vertices[1],
@@ -946,6 +1043,12 @@ void rotateLimb(string limb, int direction, float angle)
             beg += jo;
             end = rotateVectorAroundAxis(end - jo, axis, angle);
             end += jo;
+            obj->objectPtr->bone.rotationXAxis = rotateVectorAroundAxis(obj->objectPtr->bone.rotationXAxis, axis, angle);
+            obj->objectPtr->bone.rotationYAxis = rotateVectorAroundAxis(obj->objectPtr->bone.rotationYAxis, axis, angle);
+            obj->objectPtr->bone.rotationZAxis = rotateVectorAroundAxis(obj->objectPtr->bone.rotationZAxis, axis, angle);
+            obj->objectPtr->bone.referenceXAxis = rotateVectorAroundAxis(obj->objectPtr->bone.referenceXAxis, axis, angle);
+            obj->objectPtr->bone.referenceYAxis = rotateVectorAroundAxis(obj->objectPtr->bone.referenceYAxis, axis, angle);
+            obj->objectPtr->bone.referenceZAxis = rotateVectorAroundAxis(obj->objectPtr->bone.referenceZAxis, axis, angle);
             obj->objectPtr->shader.vertices.clear();
             obj->objectPtr->shader.vertices.push_back(beg.x);
             obj->objectPtr->shader.vertices.push_back(beg.y);
@@ -958,14 +1061,96 @@ void rotateLimb(string limb, int direction, float angle)
         }
         
         
-        for (int i = 0; i < obj->objectPtr->skin.indices.size(); i++) {
+        for (int i = 0; i < obj->objectPtr->bone.indices.size(); i++) {
             int attCount = rootPtr->material.texture ? 8 : 6;
-            unsigned int indice = obj->objectPtr->skin.indices[i];
+            unsigned int indice = obj->objectPtr->bone.indices[i];
             glm::vec3 pnt = glm::vec3(rootPtr->shader.vertices[indice * attCount],
                                       rootPtr->shader.vertices[indice * attCount + 1],
                                       rootPtr->shader.vertices[indice * attCount + 2]);
-            pnt = rotateVectorAroundAxis(pnt - jo, axis, angle * obj->objectPtr->skin.weights[i]);
+            pnt = rotateVectorAroundAxis(pnt - jo, axis, angle * obj->objectPtr->bone.weights[i]);
             pnt += jo;
+            rootPtr->shader.vertices[indice * attCount] = pnt.x;
+            rootPtr->shader.vertices[indice * attCount + 1] = pnt.y;
+            rootPtr->shader.vertices[indice * attCount + 2] = pnt.z;
+        }
+        
+        for (Object* ptr : obj->objectPtr->subObjects)
+            lambdaFunc(ptr);
+    };
+    
+    if (degrees.x != 0.0) {
+        axis = it->objectPtr->bone.rotationXAxis;
+        angle = degrees.x;
+        lambdaFunc(it->objectPtr);
+    }
+    
+    if (degrees.y != 0.0) {
+        axis = it->objectPtr->bone.rotationYAxis;
+        angle = degrees.y;
+        lambdaFunc(it->objectPtr);
+        it->objectPtr->bone.rotationXAxis = rotateVectorAroundAxis(it->objectPtr->bone.rotationXAxis, it->objectPtr->bone.rotationYAxis, angle);
+    }
+    
+    if (degrees.z != 0.0) {
+        axis = it->objectPtr->bone.rotationZAxis;
+        angle = degrees.z;
+        lambdaFunc(it->objectPtr);
+        it->objectPtr->bone.rotationXAxis = rotateVectorAroundAxis(it->objectPtr->bone.rotationXAxis, it->objectPtr->bone.rotationZAxis, angle);
+        it->objectPtr->bone.rotationYAxis = rotateVectorAroundAxis(it->objectPtr->bone.rotationYAxis, it->objectPtr->bone.rotationZAxis, angle);
+    }
+    
+    glBindBuffer(GL_ARRAY_BUFFER, rootPtr->shader.vbo);
+    glBufferData(GL_ARRAY_BUFFER, rootPtr->shader.vertices.size() * sizeof(float), &rootPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+    
+    degrees *= -1.0;
+    it->objectPtr->bone.rotationDegrees += degrees;
+}
+
+void locateJoint(string joint, glm::vec3 offset)
+{
+    vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [joint] (Object obj) { return obj.name == joint; });
+    
+    size_t vertLeng = it->objectPtr->shader.vertices.size();
+    glm::vec3 jo = glm::vec3(it->objectPtr->shader.vertices[vertLeng - 3],
+                            it->objectPtr->shader.vertices[vertLeng - 2],
+                            it->objectPtr->shader.vertices[vertLeng - 1]);
+    
+    glm::vec3 adjustedOffset = it->objectPtr->bone.referenceXAxis * offset.x + it->objectPtr->bone.referenceYAxis * offset.y + it->objectPtr->bone.referenceZAxis * offset.z;
+    
+    Object* rootPtr = it->objectPtr;
+    while (rootPtr->type != ObjectType::Model)
+        rootPtr = rootPtr->superObject;
+    
+    function<void(Object*)> lambdaFunc = [rootPtr, jo, adjustedOffset, &lambdaFunc](Object* obj) -> void {
+        size_t vertLeng = obj->objectPtr->shader.vertices.size();
+        glm::vec3 end = glm::vec3(obj->objectPtr->shader.vertices[vertLeng - 3],
+                                obj->objectPtr->shader.vertices[vertLeng - 2],
+                                obj->objectPtr->shader.vertices[vertLeng - 1]);
+        if (jo != end) {
+            glm::vec3 beg = glm::vec3(obj->objectPtr->shader.vertices[0],
+                                      obj->objectPtr->shader.vertices[1],
+                                      obj->objectPtr->shader.vertices[2]);
+            beg += adjustedOffset;
+            end += adjustedOffset;
+            obj->objectPtr->shader.vertices.clear();
+            obj->objectPtr->shader.vertices.push_back(beg.x);
+            obj->objectPtr->shader.vertices.push_back(beg.y);
+            obj->objectPtr->shader.vertices.push_back(beg.z);
+            obj->objectPtr->shader.vertices.push_back(end.x);
+            obj->objectPtr->shader.vertices.push_back(end.y);
+            obj->objectPtr->shader.vertices.push_back(end.z);
+            glBindBuffer(GL_ARRAY_BUFFER, obj->objectPtr->shader.vbo);
+            glBufferData(GL_ARRAY_BUFFER, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+        }
+        
+        
+        for (int i = 0; i < obj->objectPtr->bone.indices.size(); i++) {
+            int attCount = rootPtr->material.texture ? 8 : 6;
+            unsigned int indice = obj->objectPtr->bone.indices[i];
+            glm::vec3 pnt = glm::vec3(rootPtr->shader.vertices[indice * attCount],
+                                      rootPtr->shader.vertices[indice * attCount + 1],
+                                      rootPtr->shader.vertices[indice * attCount + 2]);
+            pnt += adjustedOffset * obj->objectPtr->bone.weights[i];
             rootPtr->shader.vertices[indice * attCount] = pnt.x;
             rootPtr->shader.vertices[indice * attCount + 1] = pnt.y;
             rootPtr->shader.vertices[indice * attCount + 2] = pnt.z;
@@ -978,4 +1163,6 @@ void rotateLimb(string limb, int direction, float angle)
     
     glBindBuffer(GL_ARRAY_BUFFER, rootPtr->shader.vbo);
     glBufferData(GL_ARRAY_BUFFER, rootPtr->shader.vertices.size() * sizeof(float), &rootPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+    
+    it->objectPtr->bone.locationOffset += offset;
 }
