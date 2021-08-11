@@ -51,12 +51,14 @@ struct Material {
     glm::vec3 ambient;
     glm::vec3 diffuse;
     glm::vec3 specular;
+    float shininess;
     bool texture;
     unsigned int diffuseTex;
     unsigned int specularTex;
     string diffuseTexBase64;
     string specularTexBase64;
-    float shininess;
+    vector<string> textureBase64s;
+    vector<unsigned int> textures;
 };
 struct Layout {
     float x;
@@ -66,6 +68,8 @@ struct Layout {
 };
 struct Shader {
     vector<float> vertices;
+    vector<float> normals;
+    vector<float> texCoords;
     vector<unsigned int> faces;
     int vertexCount;
     int faceCount;
@@ -175,7 +179,7 @@ float lastFrame = 0.0f;
 
 int main()
 {
-    Object* scene = createScene("/Users/nazimaniltepe/Documents/Projects/opengl-nscene/OpenGLTest4/scene4.sce");
+    Object* scene = createScene("/Users/nazimaniltepe/Documents/Projects/opengl-nscene/OpenGLTest4/scene6.sce");
     
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -241,7 +245,7 @@ int main()
     */
     
 //    rotateJoint("hips", glm::vec3(1.87, -45.2, -8.11));
-//    locateJoint("hips", glm::vec3(5.35, -3.90, 0.43));
+//    locateJoint("hips", glm::vec3(0.0963, -0.0702, 0.00774));
 //    rotateJoint("spine", glm::vec3(3.65, -5.08, 0.181));
 //    rotateJoint("spine1", glm::vec3(7.33, -10.3, -0.07));
 //    rotateJoint("spine2", glm::vec3(7.33, -10.3, -0.07));
@@ -279,7 +283,7 @@ int main()
 //    rotateJoint("rightleg", glm::vec3(0.168, -1.19, -41.4));
 //    rotateJoint("rightfoot", glm::vec3(13.8, 4.71, -9.73));
 //    rotateJoint("righttoebase", glm::vec3(0.004, -0.11, -0.262));
-    
+
     /*
      pose test blender male.dae frame 56
     */
@@ -423,6 +427,9 @@ void createProperties(Object* objPtr)
             objPtr->material.diffuseTexBase64 = entry.second;
         else if (entry.first == "mtsp")
             objPtr->material.specularTexBase64 = entry.second;
+        else if (entry.first.rfind("tex", 0) == 0) {
+            objPtr->material.textureBase64s.push_back(entry.second);
+        }
         else if (entry.first == "w")
             objPtr->bone.weights = processAttributeArray<float>(entry.second);
         else if (entry.first == "f")
@@ -431,6 +438,10 @@ void createProperties(Object* objPtr)
             objPtr->bone.indices = processAttributeArray<unsigned int>(entry.second);
         else if (entry.first == "v")
             objPtr->shader.vertices = processAttributeArray<float>(entry.second);
+        else if (entry.first == "n")
+            objPtr->shader.normals = processAttributeArray<float>(entry.second);
+        else if (entry.first == "t")
+            objPtr->shader.texCoords = processAttributeArray<float>(entry.second);
         else if (entry.first == "roll")
             objPtr->bone.rollDegree = stof(entry.second);
         else if (entry.first == "mtrl") {
@@ -613,19 +624,24 @@ void setBuffers(Object* objPtr)
             objPtr->shader.vertices.insert(objPtr->shader.vertices.begin(),
                                            objPtr->superObject->shader.vertices.end() - 3,
                                            objPtr->superObject->shader.vertices.end());
-        glBufferData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * sizeof(float), &objPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+        
+        int attCount = objPtr->material.texture ? 8 : 6;
+        glBufferData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() / 3 * attCount * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, objPtr->shader.vertices.size() * sizeof(float), &objPtr->shader.vertices[0]);
+        glBufferSubData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * sizeof(float), objPtr->shader.normals.size() * sizeof(float), &objPtr->shader.normals[0]);
+        if (objPtr->material.texture)
+            glBufferSubData(GL_ARRAY_BUFFER, (objPtr->shader.vertices.size() + objPtr->shader.normals.size()) * sizeof(float), objPtr->shader.texCoords.size() * sizeof(float), &objPtr->shader.texCoords[0]);
         if (objPtr->shader.faces.size() > 0) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, objPtr->shader.ebo);
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, objPtr->shader.faces.size() * sizeof(float), &objPtr->shader.faces[0], GL_DYNAMIC_DRAW);
         }
         if (objPtr->type == ObjectType::Model) {
-            int attCount = objPtr->material.texture ? 8 : 6;
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, attCount * sizeof(float), (void*)0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
             glEnableVertexAttribArray(0);
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, attCount * sizeof(float), (void*)(3 * sizeof(float)));
+            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)(objPtr->shader.vertices.size() * sizeof(float)));
             glEnableVertexAttribArray(1);
             if (objPtr->material.texture) {
-                glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, attCount * sizeof(float), (void*)(6 * sizeof(float)));
+                glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)((objPtr->shader.vertices.size() + objPtr->shader.normals.size()) * sizeof(float)));
                 glEnableVertexAttribArray(2);
             }
             glBindVertexArray(0);
@@ -886,61 +902,43 @@ void processContinuousInput(GLFWwindow* window)
     }
 
     if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) {
-        float angle = 2.0f;
+        float angle = 0.5f;
         if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
             angle *= -1.0;
         rotateJoint("head", glm::vec3(angle, 0.0, 0.0));
     }
     if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS) {
-        float angle = 2.0f;
+        float angle = 0.5f;
         if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
             angle *= -1.0;
         rotateJoint("head", glm::vec3(0.0, angle, 0.0));
     }
     if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS) {
-        float angle = 2.0f;
+        float angle = 0.5f;
         if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
             angle *= -1.0;
         rotateJoint("head", glm::vec3(0.0, 0.0, angle));
     }
     
+    
     if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
-        float offset = 1.0f;
+        float offset = 0.01f;
         if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
             offset *= -1.0;
         locateJoint("head", glm::vec3(offset, 0.0, 0.0));
     }
     if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) {
-        float offset = 1.0f;
+        float offset = 0.01f;
         if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
             offset *= -1.0;
         locateJoint("head", glm::vec3(0.0, offset, 0.0));
     }
     if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_COMMA) == GLFW_PRESS) {
-        float offset = 1.0f;
+        float offset = 0.01f;
         if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
             offset *= -1.0;
         locateJoint("head", glm::vec3(0.0, 0.0, offset));
     }
-    
-//    if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
-//        float offset = 0.1f;
-//        if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
-//            offset *= -1.0;
-//        locateJoint("rightrisorius", glm::vec3(offset, 0.0, 0.0));
-//    }
-//    if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) {
-//        float offset = 0.1f;
-//        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
-//            offset *= -1.0;
-//        locateJoint("rightrisorius", glm::vec3(0.0, offset, 0.0));
-//    }
-//    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_COMMA) == GLFW_PRESS) {
-//        float offset = 0.1f;
-//        if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
-//            offset *= -1.0;
-//        locateJoint("rightrisorius", glm::vec3(0.0, 0.0, offset));
-//    }
 }
 
 void resizeFramebuffer(GLFWwindow* window, int width, int height)
@@ -1072,7 +1070,7 @@ void rotateJoint(string joint, glm::vec3 degrees)
                 obj->objectPtr->shader.vertices[4] = end.y;
                 obj->objectPtr->shader.vertices[5] = end.z;
                 glBindBuffer(GL_ARRAY_BUFFER, obj->objectPtr->shader.vbo);
-                glBufferData(GL_ARRAY_BUFFER, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0]);
             }
         }
         else {
@@ -1087,21 +1085,20 @@ void rotateJoint(string joint, glm::vec3 degrees)
                 obj->objectPtr->shader.vertices[i + 2] = vert.z;
             }
             glBindBuffer(GL_ARRAY_BUFFER, obj->objectPtr->shader.vbo);
-            glBufferData(GL_ARRAY_BUFFER, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0]);
         }
         
         
         for (int i = 0; i < obj->objectPtr->bone.indices.size(); i++) {
-            int attCount = rootPtr->material.texture ? 8 : 6;
             unsigned int indice = obj->objectPtr->bone.indices[i];
-            glm::vec3 pnt = glm::vec3(rootPtr->shader.vertices[indice * attCount],
-                                      rootPtr->shader.vertices[indice * attCount + 1],
-                                      rootPtr->shader.vertices[indice * attCount + 2]);
+            glm::vec3 pnt = glm::vec3(rootPtr->shader.vertices[indice * 3],
+                                      rootPtr->shader.vertices[indice * 3 + 1],
+                                      rootPtr->shader.vertices[indice * 3 + 2]);
             pnt = rotateVectorAroundAxis(pnt - jo, axis, angle * obj->objectPtr->bone.weights[i]);
             pnt += jo;
-            rootPtr->shader.vertices[indice * attCount] = pnt.x;
-            rootPtr->shader.vertices[indice * attCount + 1] = pnt.y;
-            rootPtr->shader.vertices[indice * attCount + 2] = pnt.z;
+            rootPtr->shader.vertices[indice * 3] = pnt.x;
+            rootPtr->shader.vertices[indice * 3 + 1] = pnt.y;
+            rootPtr->shader.vertices[indice * 3 + 2] = pnt.z;
         }
         
         for (Object* ptr : obj->objectPtr->subObjects)
@@ -1130,7 +1127,7 @@ void rotateJoint(string joint, glm::vec3 degrees)
     }
     
     glBindBuffer(GL_ARRAY_BUFFER, rootPtr->shader.vbo);
-    glBufferData(GL_ARRAY_BUFFER, rootPtr->shader.vertices.size() * sizeof(float), &rootPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, rootPtr->shader.vertices.size() * sizeof(float), &rootPtr->shader.vertices[0]);
     
     degrees *= -1.0;
     it->objectPtr->bone.rotationDegrees += degrees;
@@ -1171,7 +1168,7 @@ void locateJoint(string joint, glm::vec3 offset)
             obj->objectPtr->shader.vertices[4] = end.y;
             obj->objectPtr->shader.vertices[5] = end.z;
             glBindBuffer(GL_ARRAY_BUFFER, obj->objectPtr->shader.vbo);
-            glBufferData(GL_ARRAY_BUFFER, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0]);
         }
         else {
             for (int i = 0; i < obj->objectPtr->shader.vertices.size(); i += 3) {
@@ -1184,20 +1181,19 @@ void locateJoint(string joint, glm::vec3 offset)
                 obj->objectPtr->shader.vertices[i + 2] = vert.z;
             }
             glBindBuffer(GL_ARRAY_BUFFER, obj->objectPtr->shader.vbo);
-            glBufferData(GL_ARRAY_BUFFER, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, obj->objectPtr->shader.vertices.size() * sizeof(float), &obj->objectPtr->shader.vertices[0]);
         }
         
         
         for (int i = 0; i < obj->objectPtr->bone.indices.size(); i++) {
-            int attCount = rootPtr->material.texture ? 8 : 6;
             unsigned int indice = obj->objectPtr->bone.indices[i];
-            glm::vec3 pnt = glm::vec3(rootPtr->shader.vertices[indice * attCount],
-                                      rootPtr->shader.vertices[indice * attCount + 1],
-                                      rootPtr->shader.vertices[indice * attCount + 2]);
+            glm::vec3 pnt = glm::vec3(rootPtr->shader.vertices[indice * 3],
+                                      rootPtr->shader.vertices[indice * 3 + 1],
+                                      rootPtr->shader.vertices[indice * 3 + 2]);
             pnt += adjustedOffset * obj->objectPtr->bone.weights[i];
-            rootPtr->shader.vertices[indice * attCount] = pnt.x;
-            rootPtr->shader.vertices[indice * attCount + 1] = pnt.y;
-            rootPtr->shader.vertices[indice * attCount + 2] = pnt.z;
+            rootPtr->shader.vertices[indice * 3] = pnt.x;
+            rootPtr->shader.vertices[indice * 3 + 1] = pnt.y;
+            rootPtr->shader.vertices[indice * 3 + 2] = pnt.z;
         }
         
         for (Object* ptr : obj->objectPtr->subObjects)
@@ -1206,7 +1202,7 @@ void locateJoint(string joint, glm::vec3 offset)
     lambdaFunc(it->objectPtr);
     
     glBindBuffer(GL_ARRAY_BUFFER, rootPtr->shader.vbo);
-    glBufferData(GL_ARRAY_BUFFER, rootPtr->shader.vertices.size() * sizeof(float), &rootPtr->shader.vertices[0], GL_DYNAMIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, rootPtr->shader.vertices.size() * sizeof(float), &rootPtr->shader.vertices[0]);
     
     it->objectPtr->bone.locationOffset += offset;
 }
