@@ -70,6 +70,7 @@ struct Shader {
     vector<float> vertices;
     vector<float> normals;
     vector<float> texCoords;
+    vector<float> texOrders;
     vector<unsigned int> faces;
     int vertexCount;
     int faceCount;
@@ -211,7 +212,7 @@ int main()
     setBuffers(scene);
     cameraPtr = cameraPtrs[0];
     
-    function<void(Object*)> adjustTransform = [&adjustTransform](Object* obj) {
+    function<void(Object*)> adjustBoneTransform = [&adjustBoneTransform](Object* obj) {
         if ((obj->type == ObjectType::Model || obj->type == ObjectType::Light || obj->type == ObjectType::Joint) &&
             obj->dictionary.find("trns") == obj->dictionary.end()) {
             obj->dictionary.insert(pair<string, string>("trns", obj->superObject->dictionary.at("trns")));
@@ -230,9 +231,9 @@ int main()
             }
         }
         for (int i = 0; i < obj->subObjects.size(); i++)
-            adjustTransform(obj->subObjects[i]);
+            adjustBoneTransform(obj->subObjects[i]);
     };
-    adjustTransform(scene);
+    adjustBoneTransform(scene);
     
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -442,6 +443,8 @@ void createProperties(Object* objPtr)
             objPtr->shader.normals = processAttributeArray<float>(entry.second);
         else if (entry.first == "t")
             objPtr->shader.texCoords = processAttributeArray<float>(entry.second);
+        else if (entry.first == "to")
+            objPtr->shader.texOrders = processAttributeArray<float>(entry.second);
         else if (entry.first == "roll")
             objPtr->bone.rollDegree = stof(entry.second);
         else if (entry.first == "mtrl") {
@@ -484,9 +487,11 @@ void setShaders(Object* objPtr)
         if (objPtr->type == ObjectType::Model) {
             objPtr->shader.vertexShader += "layout(location = 1) in vec3 vNormal;\n";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "layout(location = 2) in vec2 vTexCoord;\n" : "";
+            objPtr->shader.vertexShader += (objPtr->material.texture) ? "layout(location = 3) in float vTexOrder;\n" : "";
             objPtr->shader.vertexShader += "out vec3 FragPos;\n";
             objPtr->shader.vertexShader += "out vec3 Normal;\n";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "out vec2 TexCoord;\n" : "";
+            objPtr->shader.vertexShader += (objPtr->material.texture) ? "out float TexOrder;\n" : "";
         }
         
         objPtr->shader.vertexShader += "uniform mat4 model;\n";
@@ -499,6 +504,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += "FragPos = vec3(model * vec4(vPos, 1.0f));\n";
             objPtr->shader.vertexShader += "Normal = vNormal;\n";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "TexCoord = vTexCoord;\n" : "";
+            objPtr->shader.vertexShader += (objPtr->material.texture) ? "TexOrder = vTexOrder;\n" : "";
         }
             
         objPtr->shader.vertexShader += "}\0";
@@ -507,6 +513,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "in vec3 FragPos;\n";
             objPtr->shader.fragmentShader += "in vec3 Normal;\n";
             objPtr->shader.fragmentShader += (objPtr->material.texture) ? "in vec2 TexCoord;\n" : "";
+            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "in float TexOrder;\n" : "";
             objPtr->shader.fragmentShader += "struct Material {\n";
             objPtr->shader.fragmentShader += "vec3 ambient;\n";
             objPtr->shader.fragmentShader += "vec3 diffuse;\n";
@@ -514,6 +521,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "bool texture;\n";
             objPtr->shader.fragmentShader += "sampler2D diffuseTex;\n";
             objPtr->shader.fragmentShader += "sampler2D specularTex;\n";
+            objPtr->shader.fragmentShader += "sampler2D textures[" + to_string(objPtr->material.textures.size()) + "];\n";
             objPtr->shader.fragmentShader += "float shininess;\n";
             objPtr->shader.fragmentShader += "};\n";
             objPtr->shader.fragmentShader += "struct Light {\n";
@@ -549,8 +557,9 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "vec3 ambient = light.material.ambient * modelMaterial.ambient;\n";
             objPtr->shader.fragmentShader += "vec3 diffuse = light.material.diffuse * diffStrength * modelMaterial.diffuse;\n";
             objPtr->shader.fragmentShader += "vec3 specular = light.material.specular * specStrength * modelMaterial.specular;\n";
-            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "ambient = light.material.ambient * vec3(texture(modelMaterial.diffuseTex, TexCoord)) * modelMaterial.diffuse;\n" : "";
-            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "diffuse = light.material.diffuse * diffStrength * vec3(texture(modelMaterial.diffuseTex, TexCoord)) * modelMaterial.diffuse;\n" : "";
+            objPtr->shader.fragmentShader += "int order = int(Order);\n";
+            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "ambient = light.material.ambient * vec3(texture(modelMaterial.textures[order], TexCoord)) * modelMaterial.diffuse;\n" : "";
+            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "diffuse = light.material.diffuse * diffStrength * vec3(texture(modelMaterial.textures[order], TexCoord)) * modelMaterial.diffuse;\n" : "";
             objPtr->shader.fragmentShader += (objPtr->material.texture) ? ((objPtr->material.specularTexBase64 != "") ? "specular = light.material.specular * specStrength * vec3(texture(modelMaterial.specularTex, TexCoord));\n" : "") : "";
             objPtr->shader.fragmentShader += "if (light.lightType != 1) {\n";
             objPtr->shader.fragmentShader += "float distance = length(light.position - fragPos);\n";
@@ -625,12 +634,14 @@ void setBuffers(Object* objPtr)
                                            objPtr->superObject->shader.vertices.end() - 3,
                                            objPtr->superObject->shader.vertices.end());
         
-        int attCount = objPtr->material.texture ? 8 : 6;
+        int attCount = objPtr->material.texture ? 9 : 6;
         glBufferData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() / 3 * attCount * sizeof(float), NULL, GL_DYNAMIC_DRAW);
         glBufferSubData(GL_ARRAY_BUFFER, 0, objPtr->shader.vertices.size() * sizeof(float), &objPtr->shader.vertices[0]);
         glBufferSubData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * sizeof(float), objPtr->shader.normals.size() * sizeof(float), &objPtr->shader.normals[0]);
-        if (objPtr->material.texture)
+        if (objPtr->material.texture) {
             glBufferSubData(GL_ARRAY_BUFFER, (objPtr->shader.vertices.size() + objPtr->shader.normals.size()) * sizeof(float), objPtr->shader.texCoords.size() * sizeof(float), &objPtr->shader.texCoords[0]);
+            glBufferSubData(GL_ARRAY_BUFFER, (objPtr->shader.vertices.size() + objPtr->shader.normals.size() + objPtr->shader.texCoords.size()) * sizeof(float), objPtr->shader.texOrders.size() * sizeof(float), &objPtr->shader.texOrders[0]);
+        }
         if (objPtr->shader.faces.size() > 0) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, objPtr->shader.ebo);
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, objPtr->shader.faces.size() * sizeof(float), &objPtr->shader.faces[0], GL_DYNAMIC_DRAW);
@@ -643,22 +654,31 @@ void setBuffers(Object* objPtr)
             if (objPtr->material.texture) {
                 glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)((objPtr->shader.vertices.size() + objPtr->shader.normals.size()) * sizeof(float)));
                 glEnableVertexAttribArray(2);
+                glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 1 * sizeof(float), (void*)((objPtr->shader.vertices.size() + objPtr->shader.normals.size() + objPtr->shader.texCoords.size()) * sizeof(float)));
+                glEnableVertexAttribArray(3);
             }
             glBindVertexArray(0);
             if (objPtr->material.texture) {
                 int width, height, nrChannels;
-                vector<unsigned char> decoded = base64_decode(objPtr->material.diffuseTexBase64);
-                unsigned char *data = stbi_load_from_memory(&decoded[0], int(decoded.size()), &width, &height, &nrChannels, 0);
-                glGenTextures(1, &objPtr->material.diffuseTex);
-                glBindTexture(GL_TEXTURE_2D, objPtr->material.diffuseTex);
-                glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_LINEAR );
-                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR );
-                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
-                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
-                glGenerateMipmap(GL_TEXTURE_2D);
-                stbi_image_free(data);
+                for (int i = 0; i < objPtr->material.textureBase64s.size(); i++) {
+                    vector<unsigned char> decoded = base64_decode(objPtr->material.textureBase64s[i]);
+                    unsigned char *data = stbi_load_from_memory(&decoded[0], int(decoded.size()), &width, &height, &nrChannels, 0);
+                    glGenTextures(1, &objPtr->material.textures[i]);
+                    unsigned int tex;
+                    objPtr->material.textures.push_back(tex);
+                    glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[i]);
+                    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_LINEAR );
+                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR );
+                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
+                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
+                    glGenerateMipmap(GL_TEXTURE_2D);
+                    stbi_image_free(data);
+                    
+                    glUseProgram(objPtr->shader.shaderID);
+                    glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("modelMaterial.textures[" + to_string(i) + "]").c_str()), i);
+                }
 
                 if (objPtr->material.specularTexBase64 != "") {
                     vector<unsigned char> decoded_ = base64_decode(objPtr->material.specularTexBase64);
@@ -674,11 +694,6 @@ void setBuffers(Object* objPtr)
                     glGenerateMipmap(GL_TEXTURE_2D);
                     stbi_image_free(data_);
                 }
-
-                glUseProgram(objPtr->shader.shaderID);
-                glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "modelMaterial.diffuseTex"), 0);
-                if (objPtr->material.specularTexBase64 != "")
-                    glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "modelMaterial.specularTex"), 1);
             }
         }
         else if (objPtr->type == ObjectType::Light || objPtr->type == ObjectType::Joint) {
@@ -691,7 +706,7 @@ void setBuffers(Object* objPtr)
         else if (objPtr->shader.faces.size() > 0)
             objPtr->shader.vertexCount = int(objPtr->shader.faces.size());
         else if (objPtr->type == ObjectType::Model)
-            objPtr->shader.vertexCount = objPtr->material.texture ? int(objPtr->shader.vertices.size() / 8) : int(objPtr->shader.vertices.size() / 6);
+            objPtr->shader.vertexCount = objPtr->material.texture ? int(objPtr->shader.vertices.size() / 9) : int(objPtr->shader.vertices.size() / 6);
         else
             objPtr->shader.vertexCount = int(objPtr->shader.vertices.size() / 3);
     }
