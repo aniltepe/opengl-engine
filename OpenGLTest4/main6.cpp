@@ -53,11 +53,7 @@ struct Material {
     glm::vec3 specular;
     float shininess;
     bool texture;
-    unsigned int diffuseTex;
-    unsigned int specularTex;
-    string diffuseTexBase64;
-    string specularTexBase64;
-    vector<string> textureBase64s;
+    vector<string> texturesBase64;
     vector<unsigned int> textures;
 };
 struct Layout {
@@ -73,7 +69,6 @@ struct Shader {
     vector<float> texOrders;
     vector<unsigned int> faces;
     int vertexCount;
-    int faceCount;
     unsigned int vao;
     unsigned int vbo;
     unsigned int ebo;
@@ -210,6 +205,7 @@ int main()
     
     setShaders(scene);
     setBuffers(scene);
+    
     cameraPtr = cameraPtrs[0];
     
     function<void(Object*)> adjustBoneTransform = [&adjustBoneTransform](Object* obj) {
@@ -241,54 +237,6 @@ int main()
     glPointSize(10.0);
     
     
-    /*
-     pose test blender male.dae frame 56
-    */
-    
-//    rotateJoint("hips", glm::vec3(1.87, -45.2, -8.11));
-//    locateJoint("hips", glm::vec3(0.0963, -0.0702, 0.00774));
-//    rotateJoint("spine", glm::vec3(3.65, -5.08, 0.181));
-//    rotateJoint("spine1", glm::vec3(7.33, -10.3, -0.07));
-//    rotateJoint("spine2", glm::vec3(7.33, -10.3, -0.07));
-//    rotateJoint("neck", glm::vec3(-7.03, -4.75, -3.26));
-//    rotateJoint("head", glm::vec3(-0.305, 7.06, 0.318));
-//    rotateJoint("leftshoulder", glm::vec3(-0.226, 11.7, -0.399));
-//    rotateJoint("leftarm", glm::vec3(-21.4, -39.4, 7.1));
-//    rotateJoint("leftforearm", glm::vec3(-46.4, -35.8, -19.1));
-//    rotateJoint("lefthand", glm::vec3(0.695, -27.9, 26.5));
-//    rotateJoint("lefthandthumb1", glm::vec3(-25.9, 30.4, 7.61));
-//    rotateJoint("lefthandthumb2", glm::vec3(1.62, 25.3, -3.55));
-//    rotateJoint("lefthandindex1", glm::vec3(-8.66, 2.1, -16.3));
-//    rotateJoint("lefthandindex2", glm::vec3(5.77, -1.78, 11.6));
-//    rotateJoint("lefthandmiddle1", glm::vec3(-24.2, -3.83, -2.44));
-//    rotateJoint("lefthandmiddle2", glm::vec3(5.63, -2.51, 11.7));
-//    rotateJoint("lefthandring1", glm::vec3(8.57, -2.35, 18.0));
-//    rotateJoint("lefthandring2", glm::vec3(18.4, -6.67, 20.1));
-//    rotateJoint("rightshoulder", glm::vec3(0.57, 9.85, 0.155));
-//    rotateJoint("rightarm", glm::vec3(1.48, 31.0, 2.19));
-//    rotateJoint("rightforearm", glm::vec3(-44.4, 33.2, 17.5));
-//    rotateJoint("righthand", glm::vec3(-0.027, 20.5, -23.9));
-//    rotateJoint("righthandthumb1", glm::vec3(-22.8, 20.3, -6.63));
-//    rotateJoint("righthandthumb2", glm::vec3(-2.99, -2.33, 3.38));
-//    rotateJoint("righthandindex1", glm::vec3(17.4, -6.99, 23.8));
-//    rotateJoint("righthandindex2", glm::vec3(-9.22, -0.589, 5.0));
-//    rotateJoint("righthandmiddle1", glm::vec3(-19.1, -2.69, 28.4));
-//    rotateJoint("righthandmiddle2", glm::vec3(6.66, 2.99, -14.8));
-//    rotateJoint("righthandring1", glm::vec3(-22.2, -12.3, -18.2));
-//    rotateJoint("righthandring2", glm::vec3(19.5, 7.82, -21.3));
-//    rotateJoint("leftupleg", glm::vec3(0.231, 33.8, -21.0));
-//    rotateJoint("leftleg", glm::vec3(5.31, -0.467, 51.3));
-//    rotateJoint("leftfoot", glm::vec3(33.3, 12.0, 7.71));
-//    rotateJoint("lefttoebase", glm::vec3(0.031, -0.026, -0.026));
-//    rotateJoint("rightupleg", glm::vec3(27.1, 23.0, 19.5));
-//    rotateJoint("rightleg", glm::vec3(0.168, -1.19, -41.4));
-//    rotateJoint("rightfoot", glm::vec3(13.8, 4.71, -9.73));
-//    rotateJoint("righttoebase", glm::vec3(0.004, -0.11, -0.262));
-
-    /*
-     pose test blender male.dae frame 56
-    */
-    
     while (!glfwWindowShouldClose(window))
     {
         float currentFrame = glfwGetTime();
@@ -307,7 +255,7 @@ int main()
         view = lookAt(cameraPtr->transform.position, cameraPtr->transform.position + cameraPtr->transform.front, cameraPtr->transform.up);
         
         drawScene(scene);
-        
+ 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
@@ -424,12 +372,9 @@ void createProperties(Object* objPtr)
             objPtr->camera.maxDistance = stof(entry.second);
         else if (entry.first == "mvsp")
             objPtr->camera.moveSpeed = stof(entry.second);
-        else if (entry.first == "mtdf")
-            objPtr->material.diffuseTexBase64 = entry.second;
-        else if (entry.first == "mtsp")
-            objPtr->material.specularTexBase64 = entry.second;
         else if (entry.first.rfind("tex", 0) == 0) {
-            objPtr->material.textureBase64s.push_back(entry.second);
+            objPtr->material.texturesBase64.push_back(entry.second);
+            objPtr->material.texture = true;
         }
         else if (entry.first == "w")
             objPtr->bone.weights = processAttributeArray<float>(entry.second);
@@ -449,11 +394,10 @@ void createProperties(Object* objPtr)
             objPtr->bone.rollDegree = stof(entry.second);
         else if (entry.first == "mtrl") {
             vector<float> sequence = processAttributeArray<float>(entry.second);
-            objPtr->material.texture = sequence[0] == 0.0 ? false : true;
-            objPtr->material.ambient = glm::vec3(sequence[1], sequence[2], sequence[3]);
-            objPtr->material.diffuse = glm::vec3(sequence[4], sequence[5], sequence[6]);
-            objPtr->material.specular = glm::vec3(sequence[7], sequence[8], sequence[9]);
-            objPtr->material.shininess = sequence[10];
+            objPtr->material.ambient = glm::vec3(sequence[0], sequence[1], sequence[2]);
+            objPtr->material.diffuse = glm::vec3(sequence[3], sequence[4], sequence[5]);
+            objPtr->material.specular = glm::vec3(sequence[6], sequence[7], sequence[8]);
+            objPtr->material.shininess = sequence[9];
         }
         else if (entry.first == "trns") {
             vector<float> sequence = processAttributeArray<float>(entry.second);
@@ -518,10 +462,6 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "vec3 ambient;\n";
             objPtr->shader.fragmentShader += "vec3 diffuse;\n";
             objPtr->shader.fragmentShader += "vec3 specular;\n";
-            objPtr->shader.fragmentShader += "bool texture;\n";
-            objPtr->shader.fragmentShader += "sampler2D diffuseTex;\n";
-            objPtr->shader.fragmentShader += "sampler2D specularTex;\n";
-            objPtr->shader.fragmentShader += "sampler2D textures[" + to_string(objPtr->material.textures.size()) + "];\n";
             objPtr->shader.fragmentShader += "float shininess;\n";
             objPtr->shader.fragmentShader += "};\n";
             objPtr->shader.fragmentShader += "struct Light {\n";
@@ -535,6 +475,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "float outerCutOff;\n";
             objPtr->shader.fragmentShader += "Material material;\n";
             objPtr->shader.fragmentShader += "};\n";
+            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "uniform sampler2D textures[" + to_string(objPtr->material.texturesBase64.size()) + "];\n" : "";
             objPtr->shader.fragmentShader += "uniform vec3 cameraPos;\n";
             objPtr->shader.fragmentShader += "uniform Material modelMaterial;\n";
             objPtr->shader.fragmentShader += "uniform Light lights[" + to_string(count_if(objects.begin(), objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) + "];\n";
@@ -557,10 +498,9 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "vec3 ambient = light.material.ambient * modelMaterial.ambient;\n";
             objPtr->shader.fragmentShader += "vec3 diffuse = light.material.diffuse * diffStrength * modelMaterial.diffuse;\n";
             objPtr->shader.fragmentShader += "vec3 specular = light.material.specular * specStrength * modelMaterial.specular;\n";
-            objPtr->shader.fragmentShader += "int order = int(Order);\n";
-            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "ambient = light.material.ambient * vec3(texture(modelMaterial.textures[order], TexCoord)) * modelMaterial.diffuse;\n" : "";
-            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "diffuse = light.material.diffuse * diffStrength * vec3(texture(modelMaterial.textures[order], TexCoord)) * modelMaterial.diffuse;\n" : "";
-            objPtr->shader.fragmentShader += (objPtr->material.texture) ? ((objPtr->material.specularTexBase64 != "") ? "specular = light.material.specular * specStrength * vec3(texture(modelMaterial.specularTex, TexCoord));\n" : "") : "";
+            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "int order = int(TexOrder);\n" : "";
+            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "ambient = light.material.ambient * vec3(texture(textures[order], TexCoord)) * modelMaterial.diffuse;\n" : "";
+            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "diffuse = light.material.diffuse * diffStrength * vec3(texture(textures[order], TexCoord)) * modelMaterial.diffuse;\n" : "";
             objPtr->shader.fragmentShader += "if (light.lightType != 1) {\n";
             objPtr->shader.fragmentShader += "float distance = length(light.position - fragPos);\n";
             objPtr->shader.fragmentShader += "float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));\n";
@@ -594,17 +534,39 @@ void setShaders(Object* objPtr)
         const char *vertexShaderSource = objPtr->shader.vertexShader.c_str();
         glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
         glCompileShader(vertexShader);
+        int success;
+        char infoLog[512];
+        glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+        if (!success)
+        {
+            glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+            std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+        }
         int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
         const char *fragmentShaderSource = objPtr->shader.fragmentShader.c_str();
         glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
         glCompileShader(fragmentShader);
+        glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+        if (!success)
+        {
+            glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+            std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
+        }
         objPtr->shader.shaderID = glCreateProgram();
         glAttachShader(objPtr->shader.shaderID, vertexShader);
         glAttachShader(objPtr->shader.shaderID, fragmentShader);
         glLinkProgram(objPtr->shader.shaderID);
+        glGetProgramiv(objPtr->shader.shaderID, GL_LINK_STATUS, &success);
+        if (!success) {
+            glGetProgramInfoLog(objPtr->shader.shaderID, 512, NULL, infoLog);
+            std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
+        }
         glDeleteShader(vertexShader);
         glDeleteShader(fragmentShader);
     }
+    
+//    if (objPtr->name == "cubesmooth1")
+//        cout << objPtr->shader.fragmentShader << endl;
     
     for (int i = 0; i < objPtr->subObjects.size(); i++)
         setShaders(objPtr->subObjects[i]);
@@ -658,55 +620,41 @@ void setBuffers(Object* objPtr)
                 glEnableVertexAttribArray(3);
             }
             glBindVertexArray(0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
             if (objPtr->material.texture) {
+                stbi_set_flip_vertically_on_load(true);
                 int width, height, nrChannels;
-                for (int i = 0; i < objPtr->material.textureBase64s.size(); i++) {
-                    vector<unsigned char> decoded = base64_decode(objPtr->material.textureBase64s[i]);
-                    unsigned char *data = stbi_load_from_memory(&decoded[0], int(decoded.size()), &width, &height, &nrChannels, 0);
+                for (int i = 0; i < objPtr->material.texturesBase64.size(); i++) {
+                    objPtr->objectPtr->material.textures.push_back(*new unsigned int());
                     glGenTextures(1, &objPtr->material.textures[i]);
-                    unsigned int tex;
-                    objPtr->material.textures.push_back(tex);
                     glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[i]);
+                    vector<unsigned char> decoded = base64_decode(objPtr->objectPtr->material.texturesBase64[i]);
+                    unsigned char *data = stbi_load_from_memory(&decoded[0], int(decoded.size()), &width, &height, &nrChannels, 0);
                     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
                     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_LINEAR );
-                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR );
-                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
-                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
                     glGenerateMipmap(GL_TEXTURE_2D);
                     stbi_image_free(data);
                     
                     glUseProgram(objPtr->shader.shaderID);
-                    glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("modelMaterial.textures[" + to_string(i) + "]").c_str()), i);
-                }
-
-                if (objPtr->material.specularTexBase64 != "") {
-                    vector<unsigned char> decoded_ = base64_decode(objPtr->material.specularTexBase64);
-                    unsigned char *data_ = stbi_load_from_memory(&decoded_[0], int(decoded_.size()), &width, &height, &nrChannels, 0);
-                    glGenTextures(1, &objPtr->material.specularTex);
-                    glBindTexture(GL_TEXTURE_2D, objPtr->material.specularTex);
-                    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data_);
-                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
-                    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
-                    glGenerateMipmap(GL_TEXTURE_2D);
-                    stbi_image_free(data_);
+                    glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("textures[" + to_string(i) + "]").c_str()), i);
                 }
             }
         }
         else if (objPtr->type == ObjectType::Light || objPtr->type == ObjectType::Joint) {
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
             glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
             glBindVertexArray(0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
         }
+        
         if (objPtr->type == ObjectType::Joint)
             objPtr->shader.vertexCount = int(objPtr->shader.vertices.size() / 3);
         else if (objPtr->shader.faces.size() > 0)
             objPtr->shader.vertexCount = int(objPtr->shader.faces.size());
-        else if (objPtr->type == ObjectType::Model)
-            objPtr->shader.vertexCount = objPtr->material.texture ? int(objPtr->shader.vertices.size() / 9) : int(objPtr->shader.vertices.size() / 6);
         else
             objPtr->shader.vertexCount = int(objPtr->shader.vertices.size() / 3);
     }
@@ -746,17 +694,8 @@ void drawScene(Object* objPtr)
             glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, "modelMaterial.ambient"), 1, value_ptr(objPtr->material.ambient));
             glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, "modelMaterial.diffuse"), 1, value_ptr(objPtr->material.diffuse));
             glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, "modelMaterial.specular"), 1, value_ptr(objPtr->material.specular));
-            glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "modelMaterial.texture"), (int)objPtr->material.texture);
             glUniform1f(glGetUniformLocation(objPtr->shader.shaderID, "modelMaterial.shininess"), objPtr->material.shininess);
-
-            if (objPtr->material.texture) {
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, objPtr->material.diffuseTex);
-                if (objPtr->material.specularTexBase64 != "") {
-                    glActiveTexture(GL_TEXTURE1);
-                    glBindTexture(GL_TEXTURE_2D, objPtr->material.specularTex);
-                }
-            }
+            
             vector<Object>::iterator it = objects.begin();
             int index = 0;
             while ((it = find_if(it, objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) != objects.end()) {
@@ -773,6 +712,12 @@ void drawScene(Object* objPtr)
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].material.specular").c_str()), 1, value_ptr(it->objectPtr->material.specular));
                 index++;
                 it++;
+            }
+            if (objPtr->material.texture) {
+                for (int i = 0; i < objPtr->material.textures.size(); i++) {
+                    glActiveTexture(GL_TEXTURE0 + i);
+                    glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[i]);
+                }
             }
         }
         else if (objPtr->type == ObjectType::Light) {
