@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1016F2FE26DD5A0200ADAAA2 /* main6.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1016F2FD26DD5A0200ADAAA2 /* main6.cpp */; };
+		10990ACA26ED7661007DB1B4 /* main10.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 10990AC926ED7661007DB1B4 /* main10.cpp */; };
 		10F03C9F25EEE77200DD9640 /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03C9E25EEE77200DD9640 /* OpenGL.framework */; };
 		10F03CA125EEE77900DD9640 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA025EEE77900DD9640 /* Cocoa.framework */; };
 		10F03CA325EEE7F700DD9640 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA225EEE7F700DD9640 /* IOKit.framework */; };
@@ -30,7 +30,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		1016F2FD26DD5A0200ADAAA2 /* main6.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main6.cpp; sourceTree = "<group>"; };
+		10990AC926ED7661007DB1B4 /* main10.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main10.cpp; sourceTree = "<group>"; };
 		10F03C9225EEE76300DD9640 /* OpenGLTest4 */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = OpenGLTest4; sourceTree = BUILT_PRODUCTS_DIR; };
 		10F03C9E25EEE77200DD9640 /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = System/Library/Frameworks/OpenGL.framework; sourceTree = SDKROOT; };
 		10F03CA025EEE77900DD9640 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
@@ -79,7 +79,7 @@
 		10F03C9425EEE76300DD9640 /* OpenGLTest4 */ = {
 			isa = PBXGroup;
 			children = (
-				1016F2FD26DD5A0200ADAAA2 /* main6.cpp */,
+				10990AC926ED7661007DB1B4 /* main10.cpp */,
 			);
 			path = OpenGLTest4;
 			sourceTree = "<group>";
@@ -154,7 +154,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1016F2FE26DD5A0200ADAAA2 /* main6.cpp in Sources */,
+				10990ACA26ED7661007DB1B4 /* main10.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
