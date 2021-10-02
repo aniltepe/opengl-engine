@@ -904,23 +904,45 @@ void processContinuousInput(GLFWwindow* window)
         rotateJoint("head", glm::vec3(0.0, 0.0, angle));
     }
     
+//    if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
+//        float offset = 1.0f;
+//        if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
+//            offset *= -1.0;
+//        locateJoint("head", glm::vec3(offset, 0.0, 0.0));
+//    }
+//    if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) {
+//        float offset = 1.0f;
+//        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
+//            offset *= -1.0;
+//        locateJoint("head", glm::vec3(0.0, offset, 0.0));
+//    }
+//    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_COMMA) == GLFW_PRESS) {
+//        float offset = 1.0f;
+//        if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
+//            offset *= -1.0;
+//        locateJoint("head", glm::vec3(0.0, 0.0, offset));
+//    }
+    
     if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
         float offset = 1.0f;
         if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
             offset *= -1.0;
-        locateJoint("head", glm::vec3(offset, 0.0, 0.0));
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+        it->objectPtr->transform.position += glm::vec3(offset, 0, 0);
     }
     if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) {
         float offset = 1.0f;
         if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
             offset *= -1.0;
-        locateJoint("head", glm::vec3(0.0, offset, 0.0));
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+        it->objectPtr->transform.position += glm::vec3(0, offset, 0);
     }
     if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_COMMA) == GLFW_PRESS) {
         float offset = 1.0f;
         if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
             offset *= -1.0;
-        locateJoint("head", glm::vec3(0.0, 0.0, offset));
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+        it->objectPtr->transform.position += glm::vec3(0, 0, offset);
     }
     
 //    if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
