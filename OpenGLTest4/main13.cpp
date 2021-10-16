@@ -35,10 +35,13 @@ using namespace std;
 #define GetCurrentDir getcwd
 
 enum struct ObjectType : int {
-    Scene, Model, Light, Camera, Joint, Text, Cubemap
+    Scene, Model, Light, Camera, Joint, Text, Cubemap, Framebuffer
 };
 enum struct LightType : int {
     point, directional, spotlight
+};
+enum struct FboType : int {
+    inverse, graysc, kernel, custom
 };
 struct Transform {
     glm::vec3 position;
@@ -64,8 +67,6 @@ struct Layout {
     float width;
     float height;
     float size;
-    string text;
-    string font;
     glm::vec3 color;
 };
 struct Shader {
@@ -81,6 +82,8 @@ struct Shader {
     unsigned int vao;
     unsigned int vbo;
     unsigned int ebo;
+    unsigned int fbo;
+    unsigned int rbo;
     int shaderID;
     string vertexShader;
     string fragmentShader;
@@ -112,6 +115,12 @@ struct Bone {
     glm::vec3 referenceYAxis;
     glm::vec3 referenceZAxis;
 };
+struct Style {
+    string text;
+    string font;
+    vector<float> kernel;
+    FboType fboType;
+};
 struct Object {
     ObjectType type;
     string name;
@@ -128,6 +137,7 @@ struct Object {
     Transform transform;
     Layout layout;
     Bone bone;
+    Style style;
 };
 struct Character {
     unsigned int textureID;
@@ -141,11 +151,14 @@ int objIndex = 0;
 vector<Object> objects;
 Object* cameraPtr;
 vector<Object*> cameraPtrs;
+Object* fboPtr;
+vector<Object*> fboPtrs;
 map<GLchar, Character> characters;
 string shading = "phong";
 bool gammaCorrection = false;
 unsigned int polygonMode = GL_FILL;
 float lastFrame = 0.0f;
+bool commandKeySticked = false;
 
 glm::mat4 projection;
 glm::mat4 view;
@@ -211,6 +224,11 @@ int main()
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, resizeFramebuffer);
     glfwSetKeyCallback(window, processDiscreteInput);
+    int windowHeight, windowWidth;
+    glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
+    scene->layout.width = windowWidth;
+    scene->layout.height = windowHeight;
+
     
     glewExperimental = true;
     if (glewInit() != GLEW_OK) {
@@ -224,6 +242,8 @@ int main()
     setBuffers(scene);
     
     cameraPtr = cameraPtrs[0];
+//    if (fboPtrs.size() > 0)
+//        fboPtr = fboPtrs[0];
     
     function<void(Object*)> adjustBoneTransform = [&adjustBoneTransform](Object* obj) {
         if ((obj->type == ObjectType::Model || obj->type == ObjectType::Light || obj->type == ObjectType::Joint) &&
@@ -251,9 +271,6 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-//    glEnable(GL_CULL_FACE);
-//    glCullFace(GL_FRONT);
-//    glFrontFace(GL_CW);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glPointSize(10.0);
@@ -308,18 +325,34 @@ int main()
         lastFrame = currentFrame;
         float fps = 1 / timeDelta;
 //        cout << fps << endl;
-
+        
+        processContinuousInput(window);
+        glPolygonMode(GL_FRONT_AND_BACK, polygonMode);
+        
+        if (fboPtr != NULL && fboPtr->hidden == false) {
+            glBindFramebuffer(GL_FRAMEBUFFER, fboPtr->shader.fbo);
+            glViewport(0, 0, scene->layout.width, scene->layout.height);
+        }
+        glEnable(GL_DEPTH_TEST);
         glClearColor(0.28f, 0.28f, 0.28f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-        glPolygonMode(GL_FRONT_AND_BACK, polygonMode);
-
-        processContinuousInput(window);
-
+        
         projection = glm::perspective(glm::radians(cameraPtr->camera.fov), scene->layout.width / scene->layout.height, cameraPtr->camera.minDistance, cameraPtr->camera.maxDistance);
         view = lookAt(cameraPtr->transform.position, cameraPtr->transform.position + cameraPtr->transform.front, cameraPtr->transform.up);
         textprojection = glm::ortho(0.0f, scene->layout.width, 0.0f, scene->layout.height);
         
         drawScene(scene);
+        
+        if (fboPtr != NULL && fboPtr->hidden == false) {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, scene->layout.width, scene->layout.height);
+            glDisable(GL_DEPTH_TEST);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glUseProgram(fboPtr->shader.shaderID);
+            glBindVertexArray(fboPtr->shader.vao);
+            glBindTexture(GL_TEXTURE_2D, fboPtr->material.textures[0]);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
  
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -465,12 +498,16 @@ void createProperties(Object* objPtr)
             objPtr->shader.tangents = processAttributeArray<float>(entry.second);
         else if (entry.first == "btgn")
             objPtr->shader.bitangents = processAttributeArray<float>(entry.second);
+        else if (entry.first == "kern")
+            objPtr->style.kernel = processAttributeArray<float>(entry.second);
         else if (entry.first == "roll")
             objPtr->bone.rollDegree = stof(entry.second);
         else if (entry.first == "info")
-            objPtr->layout.text = entry.second;
+            objPtr->style.text = entry.second;
         else if (entry.first == "font")
-            objPtr->layout.font = entry.second;
+            objPtr->style.font = entry.second;
+        else if (entry.first == "fbtyp")
+            objPtr->style.fboType = static_cast<FboType>(stoi(entry.second));
         else if (entry.first == "mtrl") {
             vector<float> sequence = processAttributeArray<float>(entry.second);
             objPtr->material.ambient = glm::vec3(sequence[0], sequence[1], sequence[2]);
@@ -509,6 +546,8 @@ void createProperties(Object* objPtr)
     }
     if (objPtr->type == ObjectType::Camera)
         cameraPtrs.push_back(objPtr);
+    else if (objPtr->type == ObjectType::Framebuffer)
+        fboPtrs.push_back(objPtr);
 }
 
 void setShaders(Object* objPtr)
@@ -525,10 +564,18 @@ void setShaders(Object* objPtr)
         objPtr->shader.vertexShader = "#version 330 core\n";
         objPtr->shader.fragmentShader = "#version 330 core\nout vec4 FragColor;\n";
         
-        objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text) ? "layout(location = 0) in vec3 vPos;\n" : "layout(location = 0) in vec4 vPos;\n";
+        objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Framebuffer) ? "layout(location = 0) in vec3 vPos;\n" : "";
+        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Text) ? "layout(location = 0) in vec4 vPos;\n" : "";
         objPtr->shader.vertexShader += (objPtr->type == ObjectType::Text) ? "out vec2 TexCoord;\n" : "";
         
         objPtr->shader.vertexShader += (objPtr->type == ObjectType::Cubemap) ? "out vec3 TexCoord;\n" : "";
+        
+        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Framebuffer) ? "layout(location = 0) in vec2 vPos;\n" : "";
+        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Framebuffer) ? "layout(location = 1) in vec2 vTexCoord;\n" : "";
+        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Framebuffer) ? "out vec2 TexCoord;\n" : "";
+        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Framebuffer) ? "void main() {\n" : "";
+        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Framebuffer) ? "\tTexCoord = vTexCoord;\n" : "";
+        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Framebuffer) ? "\tgl_Position = vec4(vPos.x, vPos.y, 0.0, 1.0);\n" : "";
         
         if (objPtr->type == ObjectType::Model) {
             objPtr->shader.vertexShader += "layout(location = 1) in vec3 vNormal;\n";
@@ -547,13 +594,15 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "out vec3 Bitangent;\n" : "";
         }
         
-        objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "uniform mat4 model;\n" : "";
-        objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text) ? "uniform mat4 view;\n" : "";
-        objPtr->shader.vertexShader += "uniform mat4 projection;\n";
-        objPtr->shader.vertexShader += "void main() {\n";
-        objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "\tgl_Position = projection * view * model * vec4(vPos, 1.0f);\n" : "";
-        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Text) ? "\tgl_Position = projection * vec4(vPos.xy, 0.0, 1.0);\n" : "";
-        objPtr->shader.vertexShader += (objPtr->type == ObjectType::Text) ? "\tTexCoord = vPos.zw;\n" : "";
+        if (objPtr->type != ObjectType::Framebuffer) {
+            objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "uniform mat4 model;\n" : "";
+            objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text) ? "uniform mat4 view;\n" : "";
+            objPtr->shader.vertexShader += "uniform mat4 projection;\n";
+            objPtr->shader.vertexShader += "void main() {\n";
+            objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "\tgl_Position = projection * view * model * vec4(vPos, 1.0f);\n" : "";
+            objPtr->shader.vertexShader += (objPtr->type == ObjectType::Text) ? "\tgl_Position = projection * vec4(vPos.xy, 0.0, 1.0);\n" : "";
+            objPtr->shader.vertexShader += (objPtr->type == ObjectType::Text) ? "\tTexCoord = vPos.zw;\n" : "";
+        }
         
         if (objPtr->type == ObjectType::Model) {
             objPtr->shader.vertexShader += "\tFragPos = vec3(model * vec4(vPos, 1.0f));\n";
@@ -724,6 +773,38 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "\tvec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoord).r);\n";
             objPtr->shader.fragmentShader += "\tFragColor = vec4(textColor, 1.0) * sampled;\n";
         }
+        else if (objPtr->type == ObjectType::Framebuffer) {
+            objPtr->shader.fragmentShader += "in vec2 TexCoord;\n";
+            objPtr->shader.fragmentShader += "uniform sampler2D screenTexture;\n";
+            objPtr->shader.fragmentShader += "const float offset = 1.0 / 300.0;\n";
+            objPtr->shader.fragmentShader += "void main() {\n";
+            if (objPtr->style.fboType == FboType::kernel || objPtr->style.kernel.size() > 0) {
+                objPtr->shader.fragmentShader += "\tvec2 offsets[9] = vec2[](vec2(-offset, offset), vec2(0.0f, offset), vec2(offset, offset), vec2(-offset, 0.0f), vec2(0.0f, 0.0f), vec2(offset, 0.0f), vec2(-offset, -offset), vec2(0.0f, -offset), vec2(offset, -offset));\n";
+                objPtr->shader.fragmentShader += "\tfloat kernel[9] = float[](";
+                for (int i = 0; i < objPtr->style.kernel.size(); i++)
+                    objPtr->shader.fragmentShader += to_string(objPtr->style.kernel[i]) + ",";
+                objPtr->shader.fragmentShader.pop_back();
+                objPtr->shader.fragmentShader += ");\n";
+                objPtr->shader.fragmentShader += "\tvec3 sampleTex[9];\n";
+                objPtr->shader.fragmentShader += "\tfor(int i = 0; i < 9; i++)\n";
+                objPtr->shader.fragmentShader += "\t\tsampleTex[i] = vec3(texture(screenTexture, TexCoord.st + offsets[i]));\n";
+                objPtr->shader.fragmentShader += "\tvec3 col = vec3(0.0);\n";
+                objPtr->shader.fragmentShader += "\tfor(int i = 0; i < 9; i++)\n";
+                objPtr->shader.fragmentShader += "\t\tcol += sampleTex[i] * kernel[i];\n";
+                objPtr->shader.fragmentShader += "\tFragColor = vec4(col, 1.0);\n";
+            }
+            else if (objPtr->style.fboType == FboType::inverse)
+                objPtr->shader.fragmentShader += "\tFragColor = vec4(vec3(1.0 - texture(screenTexture, TexCoord)), 1.0);\n";
+            else if (objPtr->style.fboType == FboType::graysc) {
+                objPtr->shader.fragmentShader += "\tFragColor = texture(screenTexture, TexCoord);\n";
+                objPtr->shader.fragmentShader += "\tfloat average = 0.2126 * FragColor.r + 0.7152 * FragColor.g + 0.0722 * FragColor.b;\n";
+                objPtr->shader.fragmentShader += "\tFragColor = vec4(average, average, average, 1.0);\n";
+            }
+            else {
+                objPtr->shader.fragmentShader += "\tvec3 col = texture(screenTexture, TexCoord).rgb;\n";
+                objPtr->shader.fragmentShader += "\tFragColor = vec4(col, 1.0);\n";
+            }
+        }
             
         objPtr->shader.fragmentShader += "}\0";
         
@@ -760,6 +841,11 @@ void setShaders(Object* objPtr)
         glDeleteShader(fragmentShader);
     }
     
+//    if (objPtr->type == ObjectType::Framebuffer) {
+//        cout << objPtr->shader.vertexShader << endl;
+//        cout << objPtr->shader.fragmentShader << endl;
+//    }
+    
     for (int i = 0; i < objPtr->subObjects.size(); i++)
         setShaders(objPtr->subObjects[i]);
 }
@@ -781,6 +867,35 @@ void setBuffers(Object* objPtr)
             glGenBuffers(1, &objPtr->shader.ebo);
         glBindVertexArray(objPtr->shader.vao);
         glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.vbo);
+        if (objPtr->type == ObjectType::Framebuffer) {
+            glBufferData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * 2 * sizeof(float), NULL, GL_STATIC_DRAW);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, objPtr->shader.vertices.size() * sizeof(float), &objPtr->shader.vertices[0]);
+            glBufferSubData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * sizeof(float), objPtr->shader.texCoords.size() * sizeof(float), &objPtr->shader.texCoords[0]);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)(objPtr->shader.vertices.size() * sizeof(float)));
+            glEnableVertexAttribArray(1);
+            glGenFramebuffers(1, &objPtr->shader.fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, objPtr->shader.fbo);
+            objPtr->objectPtr->material.textures.push_back(*new unsigned int());
+            glGenTextures(1, &objPtr->material.textures[0]);
+            glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[0]);
+            vector<Object>::iterator sce = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.type == ObjectType::Scene; });
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, sce->objectPtr->layout.width, sce->objectPtr->layout.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, objPtr->material.textures[0], 0);
+            glUseProgram(objPtr->shader.shaderID);
+            glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "screenTexture"), 0);
+            glGenRenderbuffers(1, &objPtr->shader.rbo);
+            glBindRenderbuffer(GL_RENDERBUFFER, objPtr->shader.rbo);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, sce->objectPtr->layout.width, sce->objectPtr->layout.height);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, objPtr->shader.rbo);
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+                cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << endl;
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return;
+        }
         if (objPtr->type == ObjectType::Joint && objPtr->superObject->type == ObjectType::Joint)
             objPtr->shader.vertices.insert(objPtr->shader.vertices.begin(),
                                            objPtr->superObject->shader.vertices.end() - 3,
@@ -871,15 +986,12 @@ void setBuffers(Object* objPtr)
                         else
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
                     }
-                    else if (nrChannels == 4) {
+                    else if (nrChannels == 4) {
                         if (gammaCorrection)
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
                         else
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB_ALPHA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
                     }
-                    
-//                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_LINEAR);
-//                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
                     
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -915,7 +1027,7 @@ void setBuffers(Object* objPtr)
         else if (objPtr->type == ObjectType::Text) {
             if (FT_Init_FreeType(&ft))
                 cout << "ERROR::FREETYPE: Could not init FreeType Library" << endl;
-            string path = WORK_DIR + "fonts/" + objPtr->layout.font + ".ttf";
+            string path = WORK_DIR + "fonts/" + objPtr->style.font + ".ttf";
             if (path.empty())
                 cout << "ERROR::FREETYPE: Failed to load font_name" << endl;
             if (FT_New_Face(ft, path.c_str(), 0, &face))
@@ -960,7 +1072,7 @@ void drawScene(Object* objPtr)
     if (objPtr->hidden)
         return;
     
-    if (objPtr->type == ObjectType::Scene) {
+    if (objPtr->type == ObjectType::Scene || objPtr->type == ObjectType::Framebuffer) {
 //        cout << "object " + objPtr->name + " is not drawable, passing draw phase" << endl;
     }
     else if (objPtr->shader.vertices.size() == 0 && objPtr->type != ObjectType::Text) {
@@ -1042,7 +1154,7 @@ void drawScene(Object* objPtr)
         else if (objPtr->type == ObjectType::Text) {
             float xbychar = objPtr->layout.x;
             string::const_iterator c;
-            for (c = objPtr->layout.text.begin(); c != objPtr->layout.text.end(); c++) {
+            for (c = objPtr->style.text.begin(); c != objPtr->style.text.end(); c++) {
                 Character ch = characters[*c];
                 float xpos = xbychar + ch.bearing.x * objPtr->layout.size;
                 float ypos = objPtr->layout.y - (ch.size.y - ch.bearing.y) * objPtr->layout.size;
@@ -1102,6 +1214,16 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
         glfwSetWindowShouldClose(window, true);
     }
     
+    // sticky keys
+    if ((key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER) && action == GLFW_PRESS) {
+        commandKeySticked = true;
+    }
+    if ((key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER) && action == GLFW_RELEASE) {
+        commandKeySticked = false;
+    }
+    
+    
+    
     if (key == GLFW_KEY_V && action == GLFW_PRESS) {
         if (polygonMode == GL_FILL)
             polygonMode = GL_POINT;
@@ -1115,33 +1237,44 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
         captureScreenshot();
     }
     
-    if ((key == GLFW_KEY_1 && action == GLFW_PRESS) ||
-        (key == GLFW_KEY_2 && action == GLFW_PRESS) ||
-        (key == GLFW_KEY_3 && action == GLFW_PRESS) ||
-        (key == GLFW_KEY_4 && action == GLFW_PRESS) ||
-        (key == GLFW_KEY_5 && action == GLFW_PRESS) ||
-        (key == GLFW_KEY_6 && action == GLFW_PRESS) ||
-        (key == GLFW_KEY_7 && action == GLFW_PRESS) ||
-        (key == GLFW_KEY_8 && action == GLFW_PRESS) ||
-        (key == GLFW_KEY_9 && action == GLFW_PRESS)) {
-        int camNo = stoi(glfwGetKeyName(key, 0)) - 1;
-        if (camNo < cameraPtrs.size())
-            cameraPtr = cameraPtrs[camNo];
+    if ((key == GLFW_KEY_1 || key == GLFW_KEY_2 || key == GLFW_KEY_3 ||
+        key == GLFW_KEY_4 || key == GLFW_KEY_5 || key == GLFW_KEY_6 ||
+        key == GLFW_KEY_7 || key == GLFW_KEY_8 || key == GLFW_KEY_9) && action == GLFW_PRESS)  {
+        
+        if (commandKeySticked) {
+            int fboNo = stoi(glfwGetKeyName(key, 0)) - 2;
+            if (fboNo == -1)
+                fboPtr = NULL;
+            else if (fboNo < fboPtrs.size())
+                fboPtr = fboPtrs[fboNo];
+        }
+        else {
+            int camNo = stoi(glfwGetKeyName(key, 0)) - 1;
+            if (camNo < cameraPtrs.size())
+                cameraPtr = cameraPtrs[camNo];
+        }
     }
     
-    if (key == GLFW_KEY_LEFT_BRACKET && action == GLFW_PRESS) {    // Ğ
+    
+    
+    if (key == GLFW_KEY_0 && action == GLFW_PRESS) {
 //        resetPose("hips");
 //
-        shading = shading == "blinn-phong" ? "phong" : "blinn-phong";
-                
-//        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
-//        it->objectPtr->hidden = !it->objectPtr->hidden;
+//        shading = shading == "blinn-phong" ? "phong" : "blinn-phong";
+
+//        if (fboPtr != NULL)
+//            fboPtr->hidden = !fboPtr->hidden;
+    }
+    
+    
+    if (key == GLFW_KEY_LEFT_BRACKET && action == GLFW_PRESS) {    // Ğ
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+        it->objectPtr->hidden = !it->objectPtr->hidden;
     }
     if (key == GLFW_KEY_RIGHT_BRACKET && action == GLFW_PRESS) {    // Ü
         vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light2"; });
         it->objectPtr->hidden = !it->objectPtr->hidden;
     }
-    
     if (key == GLFW_KEY_APOSTROPHE && action == GLFW_PRESS) {    // İ
         vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light3"; });
         it->objectPtr->hidden = !it->objectPtr->hidden;
@@ -1149,6 +1282,20 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
     if (key == GLFW_KEY_BACKSLASH && action == GLFW_PRESS) {    // ,
         vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light4"; });
         it->objectPtr->hidden = !it->objectPtr->hidden;
+    }
+    
+    
+    if (key == GLFW_KEY_O && action == GLFW_PRESS) {    // O
+        //option 0
+    }
+    if (key == GLFW_KEY_P && action == GLFW_PRESS) {    // P
+        //option 1
+    }
+    if (key == GLFW_KEY_L && action == GLFW_PRESS) {    // L
+        //option 2
+    }
+    if (key == GLFW_KEY_SEMICOLON && action == GLFW_PRESS) {    // Ş
+        //option 3
     }
 }
 
