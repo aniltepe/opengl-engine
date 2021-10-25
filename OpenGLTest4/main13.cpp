@@ -79,11 +79,13 @@ struct Shader {
     vector<float> bitangents;
     vector<unsigned int> faces;
     int vertexCount;
+    int instanceCount;
     unsigned int vao;
     unsigned int vbo;
     unsigned int ebo;
     unsigned int fbo;
     unsigned int rbo;
+    unsigned int ibo;
     int shaderID;
     string vertexShader;
     string fragmentShader;
@@ -121,6 +123,15 @@ struct Style {
     vector<float> kernel;
     FboType fboType;
 };
+struct Instanced {
+    vector<float> translate;
+    vector<float> scale;
+    vector<float> front;
+    vector<float> up;
+    vector<float> left;
+    bool isInstanced = false;
+    vector<glm::mat4> instanceMatrices;
+};
 struct Object {
     ObjectType type;
     string name;
@@ -138,6 +149,7 @@ struct Object {
     Layout layout;
     Bone bone;
     Style style;
+    Instanced instanced;
 };
 struct Character {
     unsigned int textureID;
@@ -156,6 +168,7 @@ vector<Object*> fboPtrs;
 map<GLchar, Character> characters;
 string shading = "phong";
 bool gammaCorrection = false;
+bool multiSampling = false;
 unsigned int polygonMode = GL_FILL;
 float lastFrame = 0.0f;
 bool commandKeySticked = false;
@@ -184,6 +197,7 @@ void renderText(std::string text, float x, float y, float scale, glm::vec3 color
 glm::vec3 rotateVectorAroundAxis(glm::vec3 vector, glm::vec3 axis, float angle);
 void rotateJoint(string joint, glm::vec3 degrees);
 void locateJoint(string joint, glm::vec3 offset);
+void setPose();
 void resetPose(string joint);
 void calculateTangentsBitangents(Object* objPtr);
 
@@ -211,6 +225,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
@@ -274,48 +289,10 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glPointSize(10.0);
+    if (multiSampling)
+        glEnable(GL_MULTISAMPLE);
     
-    
-    
-//    rotateJoint("hips", glm::vec3(1.87, -45.2, -8.11));
-//    locateJoint("hips", glm::vec3(0.0963, -0.05, 0.00774));
-//    rotateJoint("spine", glm::vec3(3.65, -5.08, 0.181));
-//    rotateJoint("spine1", glm::vec3(7.33, -10.3, -0.07));
-//    rotateJoint("spine2", glm::vec3(7.33, -10.3, -0.07));
-//    rotateJoint("neck", glm::vec3(-7.03, -4.75, -3.26));
-//    rotateJoint("head", glm::vec3(-0.305, 7.06, 0.318));
-//    rotateJoint("leftshoulder", glm::vec3(-0.226, 11.7, -0.399));
-//    rotateJoint("leftarm", glm::vec3(-21.4, -39.4, 7.1));
-//    rotateJoint("leftforearm", glm::vec3(-46.4, -35.8, -19.1));
-//    rotateJoint("lefthand", glm::vec3(0.695, -27.9, 26.5));
-//    rotateJoint("lefthandthumb1", glm::vec3(-25.9, 30.4, 7.61));
-//    rotateJoint("lefthandthumb2", glm::vec3(1.62, 25.3, -3.55));
-//    rotateJoint("lefthandindex1", glm::vec3(-8.66, 2.1, -16.3));
-//    rotateJoint("lefthandindex2", glm::vec3(5.77, -1.78, 11.6));
-//    rotateJoint("lefthandmiddle1", glm::vec3(-24.2, -3.83, -2.44));
-//    rotateJoint("lefthandmiddle2", glm::vec3(5.63, -2.51, 11.7));
-//    rotateJoint("lefthandring1", glm::vec3(8.57, -2.35, 18.0));
-//    rotateJoint("lefthandring2", glm::vec3(18.4, -6.67, 20.1));
-//    rotateJoint("rightshoulder", glm::vec3(0.57, 9.85, 0.155));
-//    rotateJoint("rightarm", glm::vec3(1.48, 31.0, 2.19));
-//    rotateJoint("rightforearm", glm::vec3(-44.4, 33.2, 17.5));
-//    rotateJoint("righthand", glm::vec3(-0.027, 20.5, -23.9));
-//    rotateJoint("righthandthumb1", glm::vec3(-22.8, 20.3, -6.63));
-//    rotateJoint("righthandthumb2", glm::vec3(-2.99, -2.33, 3.38));
-//    rotateJoint("righthandindex1", glm::vec3(17.4, -6.99, 23.8));
-//    rotateJoint("righthandindex2", glm::vec3(-9.22, -0.589, 5.0));
-//    rotateJoint("righthandmiddle1", glm::vec3(-19.1, -2.69, 28.4));
-//    rotateJoint("righthandmiddle2", glm::vec3(6.66, 2.99, -14.8));
-//    rotateJoint("righthandring1", glm::vec3(-22.2, -12.3, -18.2));
-//    rotateJoint("righthandring2", glm::vec3(19.5, 7.82, -21.3));
-//    rotateJoint("leftupleg", glm::vec3(0.231, 33.8, -21.0));
-//    rotateJoint("leftleg", glm::vec3(5.31, -0.467, 51.3));
-//    rotateJoint("leftfoot", glm::vec3(33.3, 12.0, 7.71));
-//    rotateJoint("lefttoebase", glm::vec3(0.031, -0.026, -0.026));
-//    rotateJoint("rightupleg", glm::vec3(27.1, 23.0, 19.5));
-//    rotateJoint("rightleg", glm::vec3(0.168, -1.19, -41.4));
-//    rotateJoint("rightfoot", glm::vec3(13.8, 4.71, -9.73));
-//    rotateJoint("righttoebase", glm::vec3(0.004, -0.11, -0.262));
+//    setPose();
     
     
     while (!glfwWindowShouldClose(window))
@@ -331,7 +308,6 @@ int main()
         
         if (fboPtr != NULL && fboPtr->hidden == false) {
             glBindFramebuffer(GL_FRAMEBUFFER, fboPtr->shader.fbo);
-            glViewport(0, 0, scene->layout.width, scene->layout.height);
         }
         glEnable(GL_DEPTH_TEST);
         glClearColor(0.28f, 0.28f, 0.28f, 1.0f);
@@ -344,13 +320,22 @@ int main()
         drawScene(scene);
         
         if (fboPtr != NULL && fboPtr->hidden == false) {
+            if (multiSampling) {
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, fboPtr->shader.fbo);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboPtr->shader.ebo);  // intermediate fbo olarak ebo kullanıldı
+                glBlitFramebuffer(0, 0, scene->layout.width, scene->layout.height, 0, 0, scene->layout.width, scene->layout.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            }
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glViewport(0, 0, scene->layout.width, scene->layout.height);
             glDisable(GL_DEPTH_TEST);
             glClear(GL_COLOR_BUFFER_BIT);
             glUseProgram(fboPtr->shader.shaderID);
             glBindVertexArray(fboPtr->shader.vao);
-            glBindTexture(GL_TEXTURE_2D, fboPtr->material.textures[0]);
+            if (multiSampling) {
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, fboPtr->material.textures[1]);
+            }
+            else
+                glBindTexture(GL_TEXTURE_2D, fboPtr->material.textures[0]);
             glDrawArrays(GL_TRIANGLES, 0, 6);
         }
  
@@ -458,6 +443,8 @@ void createProperties(Object* objPtr)
             shading = entry.second;
         else if (entry.first == "gama")
             gammaCorrection = entry.second == "true" ? true : false;
+        else if (entry.first == "msaa")
+            multiSampling = entry.second == "true" ? true : false;
         else if (entry.first == "ltyp")
             objPtr->light.lightType = static_cast<LightType>(stoi(entry.second));
         else if (entry.first == "cnst")
@@ -500,6 +487,26 @@ void createProperties(Object* objPtr)
             objPtr->shader.bitangents = processAttributeArray<float>(entry.second);
         else if (entry.first == "kern")
             objPtr->style.kernel = processAttributeArray<float>(entry.second);
+        else if (entry.first == "instrns") {
+            objPtr->instanced.translate = processAttributeArray<float>(entry.second);
+            objPtr->instanced.isInstanced = true;
+        }
+        else if (entry.first == "insscal") {
+            objPtr->instanced.scale = processAttributeArray<float>(entry.second);
+            objPtr->instanced.isInstanced = true;
+        }
+        else if (entry.first == "insfron") {
+            objPtr->instanced.front = processAttributeArray<float>(entry.second);
+            objPtr->instanced.isInstanced = true;
+        }
+        else if (entry.first == "insup") {
+            objPtr->instanced.up = processAttributeArray<float>(entry.second);
+            objPtr->instanced.isInstanced = true;
+        }
+        else if (entry.first == "insleft") {
+            objPtr->instanced.left = processAttributeArray<float>(entry.second);
+            objPtr->instanced.isInstanced = true;
+        }
         else if (entry.first == "roll")
             objPtr->bone.rollDegree = stof(entry.second);
         else if (entry.first == "info")
@@ -584,6 +591,10 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "layout(location = 4) in float vTexQty;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 5) in vec3 vTangent;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 6) in vec3 vBitangent;\n" : "";
+            if (objPtr->instanced.isInstanced) {
+                objPtr->shader.vertexShader += (objPtr->material.texture) ? ((objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 7) in mat4 instanceMatrix;\n" : "layout(location = 5) in mat4 instanceMatrix;\n") : "layout(location = 2) in mat4 instanceMatrix;\n";
+//                objPtr->shader.vertexShader += (objPtr->material.texture) ? ((objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 11) in mat4 instanceRotationMatrix;\n" : "layout(location = 9) in mat4 instanceRotationMatrix;\n") : "layout(location = 6) in mat4 instanceRotationMatrix;\n";
+            }
             objPtr->shader.vertexShader += "out vec3 FragPos;\n";
             objPtr->shader.vertexShader += "out vec3 Normal;\n";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "out vec2 TexCoord;\n" : "";
@@ -598,15 +609,26 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "uniform mat4 model;\n" : "";
             objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text) ? "uniform mat4 view;\n" : "";
             objPtr->shader.vertexShader += "uniform mat4 projection;\n";
+            objPtr->shader.vertexShader += "uniform mat4 rotation;\n";
             objPtr->shader.vertexShader += "void main() {\n";
-            objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "\tgl_Position = projection * view * model * vec4(vPos, 1.0f);\n" : "";
+            if (objPtr->instanced.translate.size() > 0)
+                objPtr->shader.vertexShader += "\tgl_Position = projection * view * model * instanceMatrix * vec4(vPos, 1.0f);\n";
+            else
+                objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "\tgl_Position = projection * view * model * vec4(vPos, 1.0f);\n" : "";
             objPtr->shader.vertexShader += (objPtr->type == ObjectType::Text) ? "\tgl_Position = projection * vec4(vPos.xy, 0.0, 1.0);\n" : "";
             objPtr->shader.vertexShader += (objPtr->type == ObjectType::Text) ? "\tTexCoord = vPos.zw;\n" : "";
         }
         
         if (objPtr->type == ObjectType::Model) {
-            objPtr->shader.vertexShader += "\tFragPos = vec3(model * vec4(vPos, 1.0f));\n";
-            objPtr->shader.vertexShader += "\tNormal = vNormal;\n";
+            if (objPtr->instanced.isInstanced) {
+                objPtr->shader.vertexShader += "\tFragPos = vec3(model * instanceMatrix * vec4(vPos, 1.0f));\n";
+//                objPtr->shader.vertexShader += "\tNormal = vec3(rotation * instanceRotationMatrix * vec4(vNormal, 1.0f));\n";
+                objPtr->shader.vertexShader += "\tNormal = vec3(rotation * instanceMatrix * vec4(vNormal, 1.0f));\n";
+            }
+            else {
+                objPtr->shader.vertexShader += "\tFragPos = vec3(model * vec4(vPos, 1.0f));\n";
+                objPtr->shader.vertexShader += "\tNormal = vec3(rotation * vec4(vNormal, 1.0f));\n";
+            }
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexCoord = vTexCoord;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexOrder = vTexOrder;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexQty = vTexQty;\n" : "";
@@ -778,7 +800,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "uniform sampler2D screenTexture;\n";
             objPtr->shader.fragmentShader += "const float offset = 1.0 / 300.0;\n";
             objPtr->shader.fragmentShader += "void main() {\n";
-            if (objPtr->style.fboType == FboType::kernel || objPtr->style.kernel.size() > 0) {
+            if (objPtr->style.fboType == FboType::kernel || objPtr->style.kernel.size() > 0) {
                 objPtr->shader.fragmentShader += "\tvec2 offsets[9] = vec2[](vec2(-offset, offset), vec2(0.0f, offset), vec2(offset, offset), vec2(-offset, 0.0f), vec2(0.0f, 0.0f), vec2(offset, 0.0f), vec2(-offset, -offset), vec2(0.0f, -offset), vec2(offset, -offset));\n";
                 objPtr->shader.fragmentShader += "\tfloat kernel[9] = float[](";
                 for (int i = 0; i < objPtr->style.kernel.size(); i++)
@@ -841,7 +863,7 @@ void setShaders(Object* objPtr)
         glDeleteShader(fragmentShader);
     }
     
-//    if (objPtr->type == ObjectType::Framebuffer) {
+//    if (objPtr->name == "lefteyebrow") {
 //        cout << objPtr->shader.vertexShader << endl;
 //        cout << objPtr->shader.fragmentShader << endl;
 //    }
@@ -879,21 +901,49 @@ void setBuffers(Object* objPtr)
             glBindFramebuffer(GL_FRAMEBUFFER, objPtr->shader.fbo);
             objPtr->objectPtr->material.textures.push_back(*new unsigned int());
             glGenTextures(1, &objPtr->material.textures[0]);
-            glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[0]);
+            GLenum textype = multiSampling ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
+            glBindTexture(textype, objPtr->material.textures[0]);
             vector<Object>::iterator sce = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.type == ObjectType::Scene; });
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, sce->objectPtr->layout.width, sce->objectPtr->layout.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, objPtr->material.textures[0], 0);
-            glUseProgram(objPtr->shader.shaderID);
-            glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "screenTexture"), 0);
+            if (multiSampling)
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 4, GL_RGB, sce->objectPtr->layout.width, sce->objectPtr->layout.height, GL_TRUE);
+            else {
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, sce->objectPtr->layout.width, sce->objectPtr->layout.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            }
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textype, objPtr->material.textures[0], 0);
+            if (!multiSampling) {
+                glUseProgram(objPtr->shader.shaderID);
+                glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "screenTexture"), 0);
+            }
             glGenRenderbuffers(1, &objPtr->shader.rbo);
             glBindRenderbuffer(GL_RENDERBUFFER, objPtr->shader.rbo);
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, sce->objectPtr->layout.width, sce->objectPtr->layout.height);
+            if (multiSampling)
+                glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_DEPTH24_STENCIL8, sce->objectPtr->layout.width, sce->objectPtr->layout.height);
+            else
+                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, sce->objectPtr->layout.width, sce->objectPtr->layout.height);
             glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, objPtr->shader.rbo);
             if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
                 cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << endl;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            
+            if (multiSampling) {
+                glGenFramebuffers(1, &objPtr->shader.ebo);  // intermediate fbo olarak ebo kullanıldı
+                glBindFramebuffer(GL_FRAMEBUFFER, objPtr->shader.ebo);
+                objPtr->objectPtr->material.textures.push_back(*new unsigned int());
+                glGenTextures(1, &objPtr->material.textures[1]);
+                glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[1]);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, sce->objectPtr->layout.width, sce->objectPtr->layout.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, objPtr->material.textures[1], 0);
+                glUseProgram(objPtr->shader.shaderID);
+                glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "screenTexture"), 0);
+                if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+                    cout << "ERROR::FRAMEBUFFER:: Intermediate framebuffer is not complete!" << endl;
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            }
+            
             return;
         }
         if (objPtr->type == ObjectType::Joint && objPtr->superObject->type == ObjectType::Joint)
@@ -929,8 +979,43 @@ void setBuffers(Object* objPtr)
                     glBufferSubData(GL_ARRAY_BUFFER, (objPtr->shader.vertices.size() + objPtr->shader.normals.size() + objPtr->shader.texCoords.size() + objPtr->shader.texOrders.size() + objPtr->shader.texQuantities.size() + objPtr->shader.tangents.size()) * sizeof(float), objPtr->shader.bitangents.size() * sizeof(float), &objPtr->shader.bitangents[0]);
                 }
             }
+            
+            if (objPtr->instanced.isInstanced) {
+                if (objPtr->instanced.translate.size() > 3)
+                    objPtr->shader.instanceCount = int(objPtr->instanced.translate.size() / 3);
+                else if (objPtr->instanced.scale.size() > 3)
+                    objPtr->shader.instanceCount = int(objPtr->instanced.scale.size() / 3);
+                else if (objPtr->instanced.front.size() > 3)
+                    objPtr->shader.instanceCount = int(objPtr->instanced.front.size() / 3);
+                else if (objPtr->instanced.up.size() > 3)
+                    objPtr->shader.instanceCount = int(objPtr->instanced.up.size() / 3);
+                else if (objPtr->instanced.left.size() > 3)
+                    objPtr->shader.instanceCount = int(objPtr->instanced.left.size() / 3);
+                
+                for (int i = 0; i < objPtr->shader.instanceCount; i++) {
+                    glm::mat4 insmatrix, insrotmatrix;
+                    glm::vec3 translate, scale, front, up, left;
+                    translate = (objPtr->instanced.translate.size() > 3) ? glm::vec3(objPtr->instanced.translate[i * 3], objPtr->instanced.translate[i * 3 + 1], objPtr->instanced.translate[i * 3 + 2]) : (objPtr->instanced.translate.size() == 3 ? glm::vec3(objPtr->instanced.translate[0], objPtr->instanced.translate[1], objPtr->instanced.translate[2]) : glm::vec3(0.0, 0.0, 0.0));
+                    scale = (objPtr->instanced.scale.size() > 3) ? glm::vec3(objPtr->instanced.scale[i * 3], objPtr->instanced.scale[i * 3 + 1], objPtr->instanced.scale[i * 3 + 2]) : (objPtr->instanced.scale.size() == 3 ? glm::vec3(objPtr->instanced.scale[0], objPtr->instanced.scale[1], objPtr->instanced.scale[2]) : glm::vec3(1.0, 1.0, 1.0));
+                    front = (objPtr->instanced.front.size() > 3) ? glm::vec3(objPtr->instanced.front[i * 3], objPtr->instanced.front[i * 3 + 1], objPtr->instanced.front[i * 3 + 2]) : (objPtr->instanced.front.size() == 3 ? glm::vec3(objPtr->instanced.front[0], objPtr->instanced.front[1], objPtr->instanced.front[2]) : glm::vec3(0.0, 0.0, 1.0));
+                    up = (objPtr->instanced.up.size() > 3) ? glm::vec3(objPtr->instanced.up[i * 3], objPtr->instanced.up[i * 3 + 1], objPtr->instanced.up[i * 3 + 2]) : (objPtr->instanced.up.size() == 3 ? glm::vec3(objPtr->instanced.up[0], objPtr->instanced.up[1], objPtr->instanced.up[2]) : glm::vec3(0.0, 1.0, 0.0));
+                    left = (objPtr->instanced.left.size() > 3) ? glm::vec3(objPtr->instanced.left[i * 3], objPtr->instanced.left[i * 3 + 1], objPtr->instanced.left[i * 3 + 2]) : (objPtr->instanced.left.size() == 3 ? glm::vec3(objPtr->instanced.left[0], objPtr->instanced.left[1], objPtr->instanced.left[2]) : glm::vec3(1.0, 0.0, 0.0));
+                    insmatrix = glm::translate(glm::mat4(1.0f), translate);
+                    insmatrix = glm::scale(insmatrix, scale);
+                    insrotmatrix = glm::mat4(left.x,left.y, left.z, 0,
+                                            up.x, up.y, up.z, 0,
+                                            front.x, front.y, front.z, 0,
+                                            0, 0, 0, 1);
+                    insmatrix *= insrotmatrix;
+                    objPtr->instanced.instanceMatrices.push_back(insmatrix);
+                }
+                glGenBuffers(1, &objPtr->shader.ibo);
+                glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.ibo);
+                glBufferData(GL_ARRAY_BUFFER, objPtr->shader.instanceCount * sizeof(glm::mat4), &objPtr->instanced.instanceMatrices[0], GL_STATIC_DRAW);
+            }
+            
         }
-        else if (objPtr->type == ObjectType::Text){
+        else if (objPtr->type == ObjectType::Text) {
             glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
             glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
             glEnableVertexAttribArray(0);
@@ -942,7 +1027,9 @@ void setBuffers(Object* objPtr)
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, objPtr->shader.ebo);
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, objPtr->shader.faces.size() * sizeof(float), &objPtr->shader.faces[0], GL_DYNAMIC_DRAW);
         }
+        
         if (objPtr->type == ObjectType::Model) {
+            glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.vbo);
             glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
             glEnableVertexAttribArray(0);
             glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)(objPtr->shader.vertices.size() * sizeof(float)));
@@ -961,6 +1048,25 @@ void setBuffers(Object* objPtr)
                     glEnableVertexAttribArray(6);
                 }
             }
+            if (objPtr->instanced.isInstanced) {
+                glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.ibo);
+                glBindVertexArray(objPtr->shader.vao);
+                int attrCount = objPtr->material.texture ? ((objPtr->material.normMapIndexes.size() > 0) ? 7 : 5) : 2;
+                glVertexAttribPointer(attrCount, 4, GL_FLOAT, GL_FALSE, 16 * sizeof(float), (void*)0);
+                glEnableVertexAttribArray(attrCount);
+                glVertexAttribPointer(attrCount + 1, 4, GL_FLOAT, GL_FALSE, 16 * sizeof(float), (void*)(4 * sizeof(float)));
+                glEnableVertexAttribArray(attrCount + 1);
+                glVertexAttribPointer(attrCount + 2, 4, GL_FLOAT, GL_FALSE, 16 * sizeof(float), (void*)(8 * sizeof(float)));
+                glEnableVertexAttribArray(attrCount + 2);
+                glVertexAttribPointer(attrCount + 3, 4, GL_FLOAT, GL_FALSE, 16 * sizeof(float), (void*)(12 * sizeof(float)));
+                glEnableVertexAttribArray(attrCount + 3);
+
+                glVertexAttribDivisor(attrCount, 1);
+                glVertexAttribDivisor(attrCount + 1, 1);
+                glVertexAttribDivisor(attrCount + 2, 1);
+                glVertexAttribDivisor(attrCount + 3, 1);
+            }
+            
             glBindVertexArray(0);
             glBindBuffer(GL_ARRAY_BUFFER, 0);
             if (objPtr->material.texture) {
@@ -1072,7 +1178,7 @@ void drawScene(Object* objPtr)
     if (objPtr->hidden)
         return;
     
-    if (objPtr->type == ObjectType::Scene || objPtr->type == ObjectType::Framebuffer) {
+    if (objPtr->type == ObjectType::Scene || objPtr->type == ObjectType::Framebuffer) {
 //        cout << "object " + objPtr->name + " is not drawable, passing draw phase" << endl;
     }
     else if (objPtr->shader.vertices.size() == 0 && objPtr->type != ObjectType::Text) {
@@ -1093,6 +1199,7 @@ void drawScene(Object* objPtr)
                               0, 0, 0, 1);
             model *= rotation;
             glUniformMatrix4fv(glGetUniformLocation(objPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model));
+            glUniformMatrix4fv(glGetUniformLocation(objPtr->shader.shaderID, "rotation"), 1, GL_FALSE,  value_ptr(rotation));
         }
         else if (objPtr->type == ObjectType::Text) {
             glUniformMatrix4fv(glGetUniformLocation(objPtr->shader.shaderID, "projection"), 1, GL_FALSE, value_ptr(textprojection));
@@ -1174,10 +1281,19 @@ void drawScene(Object* objPtr)
                 xbychar += (ch.advance >> 6) * objPtr->layout.size;
             }
         }
-        else if (objPtr->shader.faces.size() > 0)
-            glDrawElements(GL_TRIANGLES, objPtr->shader.vertexCount, GL_UNSIGNED_INT, 0);
-        else
-            glDrawArrays(GL_TRIANGLES, 0, objPtr->shader.vertexCount);
+        else if (objPtr->shader.faces.size() > 0) {
+            if (objPtr->instanced.isInstanced)
+                glDrawElementsInstanced(GL_TRIANGLES, objPtr->shader.vertexCount, GL_UNSIGNED_INT, 0, objPtr->shader.instanceCount);
+            else
+                glDrawElements(GL_TRIANGLES, objPtr->shader.vertexCount, GL_UNSIGNED_INT, 0);
+        }
+        else {
+            if (objPtr->instanced.isInstanced)
+                glDrawArraysInstanced(GL_TRIANGLES, 0, objPtr->shader.vertexCount, objPtr->shader.instanceCount);
+            else
+                glDrawArrays(GL_TRIANGLES, 0, objPtr->shader.vertexCount);
+        }
+            
         
         glBindVertexArray(0);
         glBindTexture(GL_TEXTURE_2D, 0);
@@ -1215,10 +1331,10 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
     }
     
     // sticky keys
-    if ((key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER) && action == GLFW_PRESS) {
+    if ((key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER) && action == GLFW_PRESS) {
         commandKeySticked = true;
     }
-    if ((key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER) && action == GLFW_RELEASE) {
+    if ((key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER) && action == GLFW_RELEASE) {
         commandKeySticked = false;
     }
     
@@ -1264,6 +1380,12 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
 
 //        if (fboPtr != NULL)
 //            fboPtr->hidden = !fboPtr->hidden;
+        
+        cout << "pos: " << cameraPtr->transform.position.x << cameraPtr->transform.position.y << cameraPtr->transform.position.y << endl;
+        cout << "fro: " << cameraPtr->transform.front.x << cameraPtr->transform.front.y << cameraPtr->transform.front.z << endl;
+        cout << "up: " << cameraPtr->transform.up.x << cameraPtr->transform.up.y << cameraPtr->transform.up.z << endl;
+        cout << "lef: " << cameraPtr->transform.left.x << cameraPtr->transform.left.y << cameraPtr->transform.left.z << endl;
+        cout << "fov: " << cameraPtr->camera.fov << endl;
     }
     
     
@@ -1359,7 +1481,35 @@ void processContinuousInput(GLFWwindow* window)
         if (cameraPtr->camera.fov > 0.0f)
             cameraPtr->camera.fov -= 0.5f;
     }
+    
+    
+    
+    function<void(Object*, float)> translation = [&translation](Object* obj, float offset) {
+        obj->objectPtr->transform.position += glm::vec3(0.0, 0.0, offset);
+        for (int i = 0; i < obj->subObjects.size(); i++)
+            translation(obj->subObjects[i], offset);
+    };
+    function<void(Object*, float)> rotation = [&rotation](Object* obj, float angle) {
+        obj->objectPtr->transform.left = rotateVectorAroundAxis(obj->objectPtr->transform.left, obj->objectPtr->transform.up, angle);
+        obj->objectPtr->transform.front = rotateVectorAroundAxis(obj->objectPtr->transform.front, obj->objectPtr->transform.up, angle);
+        for (int i = 0; i < obj->subObjects.size(); i++)
+            rotation(obj->subObjects[i], angle);
+    };
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "human"; });
+        rotation(it->objectPtr, 1.0f);
+        translation(it->objectPtr, 0.01f);
+//        locateJoint("head", glm::vec3(0.01, 0.0, 0.0));
+    }
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "human"; });
+        rotation(it->objectPtr, -1.0f);
+        translation(it->objectPtr, -0.01f);
+//        locateJoint("head", glm::vec3(-0.01, 0.0, 0.0));
+    }
 
+    
+    
     if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) {
 //        float angle = 0.5f;
 //        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
@@ -1698,6 +1848,49 @@ void locateJoint(string joint, glm::vec3 offset)
     glBufferSubData(GL_ARRAY_BUFFER, 0, rootPtr->shader.vertices.size() * sizeof(float), &rootPtr->shader.vertices[0]);
     
     it->objectPtr->bone.locationOffset += offset;
+}
+
+void setPose()
+{
+    rotateJoint("hips", glm::vec3(1.87, -45.2, -8.11));
+    locateJoint("hips", glm::vec3(0.0963, -0.05, 0.00774));
+    rotateJoint("spine", glm::vec3(3.65, -5.08, 0.181));
+    rotateJoint("spine1", glm::vec3(7.33, -10.3, -0.07));
+    rotateJoint("spine2", glm::vec3(7.33, -10.3, -0.07));
+    rotateJoint("neck", glm::vec3(-7.03, -4.75, -3.26));
+    rotateJoint("head", glm::vec3(-0.305, 7.06, 0.318));
+    rotateJoint("leftshoulder", glm::vec3(-0.226, 11.7, -0.399));
+    rotateJoint("leftarm", glm::vec3(-21.4, -39.4, 7.1));
+    rotateJoint("leftforearm", glm::vec3(-46.4, -35.8, -19.1));
+    rotateJoint("lefthand", glm::vec3(0.695, -27.9, 26.5));
+    rotateJoint("lefthandthumb1", glm::vec3(-25.9, 30.4, 7.61));
+    rotateJoint("lefthandthumb2", glm::vec3(1.62, 25.3, -3.55));
+    rotateJoint("lefthandindex1", glm::vec3(-8.66, 2.1, -16.3));
+    rotateJoint("lefthandindex2", glm::vec3(5.77, -1.78, 11.6));
+    rotateJoint("lefthandmiddle1", glm::vec3(-24.2, -3.83, -2.44));
+    rotateJoint("lefthandmiddle2", glm::vec3(5.63, -2.51, 11.7));
+    rotateJoint("lefthandring1", glm::vec3(8.57, -2.35, 18.0));
+    rotateJoint("lefthandring2", glm::vec3(18.4, -6.67, 20.1));
+    rotateJoint("rightshoulder", glm::vec3(0.57, 9.85, 0.155));
+    rotateJoint("rightarm", glm::vec3(1.48, 31.0, 2.19));
+    rotateJoint("rightforearm", glm::vec3(-44.4, 33.2, 17.5));
+    rotateJoint("righthand", glm::vec3(-0.027, 20.5, -23.9));
+    rotateJoint("righthandthumb1", glm::vec3(-22.8, 20.3, -6.63));
+    rotateJoint("righthandthumb2", glm::vec3(-2.99, -2.33, 3.38));
+    rotateJoint("righthandindex1", glm::vec3(17.4, -6.99, 23.8));
+    rotateJoint("righthandindex2", glm::vec3(-9.22, -0.589, 5.0));
+    rotateJoint("righthandmiddle1", glm::vec3(-19.1, -2.69, 28.4));
+    rotateJoint("righthandmiddle2", glm::vec3(6.66, 2.99, -14.8));
+    rotateJoint("righthandring1", glm::vec3(-22.2, -12.3, -18.2));
+    rotateJoint("righthandring2", glm::vec3(19.5, 7.82, -21.3));
+    rotateJoint("leftupleg", glm::vec3(0.231, 33.8, -21.0));
+    rotateJoint("leftleg", glm::vec3(5.31, -0.467, 51.3));
+    rotateJoint("leftfoot", glm::vec3(33.3, 12.0, 7.71));
+    rotateJoint("lefttoebase", glm::vec3(0.031, -0.026, -0.026));
+    rotateJoint("rightupleg", glm::vec3(27.1, 23.0, 19.5));
+    rotateJoint("rightleg", glm::vec3(0.168, -1.19, -41.4));
+    rotateJoint("rightfoot", glm::vec3(13.8, 4.71, -9.73));
+    rotateJoint("righttoebase", glm::vec3(0.004, -0.11, -0.262));
 }
 
 void resetPose(string joint)
