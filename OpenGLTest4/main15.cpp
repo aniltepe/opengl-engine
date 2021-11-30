@@ -379,6 +379,8 @@ int main()
  
         glfwSwapBuffers(window);
         glfwPollEvents();
+        
+        captureScreenshot();
     }
     
     deleteScene(scene);
@@ -669,9 +671,18 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexCoord = vTexCoord;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexOrder = vTexOrder;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexQty = vTexQty;\n" : "";
-            objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "\tNormalMatrix = transpose(inverse(mat3(model)));\n" : "";
-            objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "\tTangent = vTangent;\n" : "";
-            objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "\tBitangent = vBitangent;\n" : "";
+            if (objPtr->material.normMapIndexes.size() > 0) {
+                objPtr->shader.vertexShader += "\tNormalMatrix = transpose(inverse(mat3(model)));\n";
+                if (objPtr->instanced.isInstanced) {
+                    objPtr->shader.vertexShader += "\tTangent = vec3(rotation * instanceRotationMatrix * vec4(vTangent, 1.0f));\n";
+                    objPtr->shader.vertexShader += "\tBitangent = vec3(rotation * instanceRotationMatrix * vec4(vBitangent, 1.0f));\n";
+                }
+                else {
+                    objPtr->shader.vertexShader += "\tTangent = vec3(rotation * vec4(vTangent, 1.0f));\n";
+                    objPtr->shader.vertexShader += "\tBitangent = vec3(rotation * vec4(vBitangent, 1.0f));\n";
+                }
+            }
+            
         }
             
         objPtr->shader.vertexShader += "}\0";
@@ -1508,28 +1519,28 @@ void processContinuousInput(GLFWwindow* window)
     }
 
     if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-        cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.left, cameraPtr->camera.fov * -0.01);
-        cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.left, cameraPtr->camera.fov * -0.01);
+        cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.left, cameraPtr->camera.fov * -1.0 * cameraPtr->camera.moveSpeed);
+        cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.left, cameraPtr->camera.fov * -1.0 * cameraPtr->camera.moveSpeed);
     }
     if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-        cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.left, cameraPtr->camera.fov * 0.01);
-        cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.left, cameraPtr->camera.fov * 0.01);
+        cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.left, cameraPtr->camera.fov * cameraPtr->camera.moveSpeed);
+        cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.left, cameraPtr->camera.fov * cameraPtr->camera.moveSpeed);
     }
     if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-        cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.up, cameraPtr->camera.fov * 0.01);
-        cameraPtr->transform.left = rotateVectorAroundAxis(cameraPtr->transform.left, cameraPtr->transform.up, cameraPtr->camera.fov * 0.01);
+        cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.up, cameraPtr->camera.fov * cameraPtr->camera.moveSpeed);
+        cameraPtr->transform.left = rotateVectorAroundAxis(cameraPtr->transform.left, cameraPtr->transform.up, cameraPtr->camera.fov * cameraPtr->camera.moveSpeed);
     }
     if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-        cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.up, cameraPtr->camera.fov * -0.01);
-        cameraPtr->transform.left = rotateVectorAroundAxis(cameraPtr->transform.left, cameraPtr->transform.up, cameraPtr->camera.fov * -0.01);
+        cameraPtr->transform.front = rotateVectorAroundAxis(cameraPtr->transform.front, cameraPtr->transform.up, cameraPtr->camera.fov * -1.0 * cameraPtr->camera.moveSpeed);
+        cameraPtr->transform.left = rotateVectorAroundAxis(cameraPtr->transform.left, cameraPtr->transform.up, cameraPtr->camera.fov * -1.0 * cameraPtr->camera.moveSpeed);
     }
     if (glfwGetKey(window, GLFW_KEY_PERIOD) == GLFW_PRESS) {
-        cameraPtr->transform.left = rotateVectorAroundAxis(cameraPtr->transform.left, cameraPtr->transform.front, cameraPtr->camera.fov * -0.01);
-        cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.front, cameraPtr->camera.fov * -0.01);
+        cameraPtr->transform.left = rotateVectorAroundAxis(cameraPtr->transform.left, cameraPtr->transform.front, cameraPtr->camera.fov * -1.0 * cameraPtr->camera.moveSpeed);
+        cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.front, cameraPtr->camera.fov * -1.0 * cameraPtr->camera.moveSpeed);
     }
     if (glfwGetKey(window, GLFW_KEY_SLASH) == GLFW_PRESS) {
-        cameraPtr->transform.left = rotateVectorAroundAxis(cameraPtr->transform.left, cameraPtr->transform.front, cameraPtr->camera.fov * 0.01);
-        cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.front, cameraPtr->camera.fov * 0.01);
+        cameraPtr->transform.left = rotateVectorAroundAxis(cameraPtr->transform.left, cameraPtr->transform.front, cameraPtr->camera.fov * cameraPtr->camera.moveSpeed);
+        cameraPtr->transform.up = rotateVectorAroundAxis(cameraPtr->transform.up, cameraPtr->transform.front, cameraPtr->camera.fov * cameraPtr->camera.moveSpeed);
     }
     
     if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
