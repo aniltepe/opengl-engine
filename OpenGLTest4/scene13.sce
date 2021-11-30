@@ -3,6 +3,7 @@ lout: 800.0 600.0 0.0 0.0 0.0
 shad: blinn-phong
 gama: true
 msaa: true
+shdw: true
 
 light1
     type: 2

@@ -257,10 +257,8 @@ int main()
     setBuffers(scene);
     
     cameraPtr = cameraPtrs[0];
-//    if (fboPtrs.size() > 0)
-//        fboPtr = fboPtrs[0];
     
-    function<void(Object*)> adjustBoneTransform = [&adjustBoneTransform](Object* obj) {
+    function<void(Object*)> adjustTransform = [&adjustTransform](Object* obj) {
         if ((obj->type == ObjectType::Model || obj->type == ObjectType::Light || obj->type == ObjectType::Joint) &&
             obj->dictionary.find("trns") == obj->dictionary.end()) {
             obj->dictionary.insert(pair<string, string>("trns", obj->superObject->dictionary.at("trns")));
@@ -279,9 +277,9 @@ int main()
             }
         }
         for (int i = 0; i < obj->subObjects.size(); i++)
-            adjustBoneTransform(obj->subObjects[i]);
+            adjustTransform(obj->subObjects[i]);
     };
-    adjustBoneTransform(scene);
+    adjustTransform(scene);
     
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
