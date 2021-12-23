@@ -97,6 +97,7 @@ struct Light {
     float quadratic;
     float cutOff;
     float outerCutOff;
+    glm::mat4 projection;
 };
 struct Camera {
     float fov;
@@ -123,13 +124,13 @@ struct Style {
     vector<float> kernel;
     FboType fboType;
 };
-struct Instanced {
+struct Instance {
     vector<float> translate;
     vector<float> scale;
     vector<float> front;
     vector<float> up;
     vector<float> left;
-    bool isInstanced = false;
+    bool instanced = false;
     vector<glm::mat4> instanceMatrices;
 };
 struct Object {
@@ -149,7 +150,7 @@ struct Object {
     Layout layout;
     Bone bone;
     Style style;
-    Instanced instanced;
+    Instance instance;
 };
 struct Character {
     unsigned int textureID;
@@ -170,7 +171,8 @@ string shading = "phong";
 bool gammaCorrection = false;
 bool multiSampling = false;
 bool shadows = false;
-Object* shadowFboPtr;
+vector<Object*> shadowFboPtrs;
+float shadowFarPlane = 25.0;
 unsigned int polygonMode = GL_FILL;
 float lastFrame = 0.0f;
 bool commandKeySticked = false;
@@ -190,7 +192,7 @@ void setShaders(Object* objPtr);
 void setBuffers(Object* objPtr);
 void drawScene(Object* objPtr);
 void deleteScene(Object* objPtr);
-void drawShadows(Object* objPtr);
+void drawShadows(Object* objPtr, Object* shadowPtr, bool hidden);
 void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action, int mods);
 void processContinuousInput(GLFWwindow* window);
 void resizeFramebuffer(GLFWwindow* window, int width, int height);
@@ -221,10 +223,10 @@ vector<T> processAttributeArray(string s)
     return values;
 }
 
-void messageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam)
-{
-  fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n", (type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : ""), type, severity, message );
-}
+//void messageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam)
+//{
+//  fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n", (type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : ""), type, severity, message );
+//}
 
 int main()
 {
@@ -238,7 +240,7 @@ int main()
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
-    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
+//    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
 
     GLFWwindow* window = glfwCreateWindow(scene->layout.width, scene->layout.height, "OpenGL", NULL, NULL);
     if (window == NULL) {
@@ -288,13 +290,13 @@ int main()
                     obj->bone.referenceZAxis = glm::vec3(obj->bone.rotationZAxis);
                 }
             }
-            if (obj->superObject->instanced.isInstanced && !obj->instanced.isInstanced) {
-                obj->instanced.isInstanced = true;
-                obj->instanced.translate = obj->superObject->instanced.translate;
-                obj->instanced.scale = obj->superObject->instanced.scale;
-                obj->instanced.front = obj->superObject->instanced.front;
-                obj->instanced.up = obj->superObject->instanced.up;
-                obj->instanced.left = obj->superObject->instanced.left;
+            if (obj->superObject->instance.instanced && !obj->instance.instanced) {
+                obj->instance.instanced = true;
+                obj->instance.translate = obj->superObject->instance.translate;
+                obj->instance.scale = obj->superObject->instance.scale;
+                obj->instance.front = obj->superObject->instance.front;
+                obj->instance.up = obj->superObject->instance.up;
+                obj->instance.left = obj->superObject->instance.left;
             }
             if (obj->dictionary.find("mtrl") == obj->dictionary.end() && obj->superObject->dictionary.find("mtrl") != obj->dictionary.end()) {
                 obj->dictionary.insert(pair<string, string>("mtrl", obj->superObject->dictionary.at("mtrl")));
@@ -310,8 +312,26 @@ int main()
     inheritProperties(scene);
     
     cameraPtr = cameraPtrs[0];
-    if (shadowFboPtr != NULL)
+    if (shadowFboPtrs.size() > 0) {
         shadows = true;
+        int lightCount = int(count_if(objects.begin(), objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; }));
+        lightCount--; // zaten bir adet shadow fbo mevcut
+        for (int i = 0; i < lightCount; i++) {
+            Object* objPtr = new Object();
+            objPtr->objectPtr = objPtr;
+            objPtr->index = objIndex++;
+            objPtr->name = shadowFboPtrs[0]->name + to_string(i);
+            objPtr->type = shadowFboPtrs[0]->type;
+            objPtr->style.fboType = shadowFboPtrs[0]->style.fboType;
+            objPtr->layout = shadowFboPtrs[0]->layout;
+            objPtr->shader.vertices.push_back(0.0);
+            objects.push_back(*objPtr);
+            scene->subObjects.push_back(objPtr);
+            objPtr->superObject = scene;
+            shadowFboPtrs.push_back(objPtr);
+        }
+    }
+    
     
     setShaders(scene);
     setBuffers(scene);
@@ -323,6 +343,7 @@ int main()
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
+//    glEnable(GL_CULL_FACE);
     glPointSize(10.0);
     if (multiSampling)
         glEnable(GL_MULTISAMPLE);
@@ -347,36 +368,35 @@ int main()
         textprojection = glm::ortho(0.0f, scene->layout.width, 0.0f, scene->layout.height);
         
         if (shadows) {
-            float nearPlane = 0.0f;
-            float farPlane  = 25.0;
-            shadowFboPtr->layout.x = nearPlane;
-            shadowFboPtr->layout.y = farPlane;
-            glViewport(0, 0, shadowFboPtr->layout.width, shadowFboPtr->layout.height);
-            glBindFramebuffer(GL_FRAMEBUFFER, shadowFboPtr->shader.fbo);
-            glClear(GL_DEPTH_BUFFER_BIT);
+            float shadowNearPlane = 0.0f;
             vector<Object>::iterator it = objects.begin();
-            while ((it = find_if(it, objects.end(), [] (Object obj) { return obj.type == ObjectType::Light && !obj.objectPtr->hidden; })) != objects.end()) {
-                glm::mat4 shadowProjection = glm::perspective(glm::radians(90.0f), shadowFboPtr->layout.width / shadowFboPtr->layout.height, nearPlane, farPlane);
+            while ((it = find_if(it, objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) != objects.end()) {
+                int index = int(it - objects.begin());
+                glViewport(0, 0, shadowFboPtrs[index]->layout.width, shadowFboPtrs[index]->layout.height);
+                glBindFramebuffer(GL_FRAMEBUFFER, shadowFboPtrs[index]->shader.fbo);
+                glClear(GL_DEPTH_BUFFER_BIT);
+                it->objectPtr->light.projection = glm::perspective(glm::radians(90.0f), shadowFboPtrs[index]->layout.width / shadowFboPtrs[index]->layout.height, shadowNearPlane, shadowFarPlane);
                 vector<glm::mat4> shadowTransforms;
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+                shadowTransforms.push_back(it->objectPtr->light.projection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+                shadowTransforms.push_back(it->objectPtr->light.projection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+                shadowTransforms.push_back(it->objectPtr->light.projection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
+                shadowTransforms.push_back(it->objectPtr->light.projection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)));
+                shadowTransforms.push_back(it->objectPtr->light.projection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+                shadowTransforms.push_back(it->objectPtr->light.projection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
                 
-                glUseProgram(shadowFboPtr->shader.shaderID);
-                for (unsigned int i = 0; i < 6; ++i)
-                    glUniformMatrix4fv(glGetUniformLocation(shadowFboPtr->shader.shaderID, ("shadowTransforms[" + to_string(i) + "]").c_str()), 1, GL_FALSE, value_ptr(shadowTransforms[i]));
-                glUniform1f(glGetUniformLocation(shadowFboPtr->shader.shaderID, "farPlane"), farPlane);
-                glUniform3fv(glGetUniformLocation(shadowFboPtr->shader.shaderID, "lightPos"), 1, value_ptr(it->objectPtr->transform.position));
-                drawShadows(scene);
+                for (unsigned int i = 0; i < 6; i++) {
+                    glUseProgram(shadowFboPtrs[index]->shader.shaderID);
+                    glUniformMatrix4fv(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, ("shadowTransforms[" + to_string(i) + "]").c_str()), 1, GL_FALSE, value_ptr(shadowTransforms[i]));
+                }
+                glUniform1f(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, "farPlane"), shadowFarPlane);
+                glUniform3fv(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, "lightPos"), 1, value_ptr(it->objectPtr->transform.position));
+                drawShadows(scene, shadowFboPtrs[index]->objectPtr, it->objectPtr->hidden);
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 it++;
             }
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glViewport(0, 0, scene->layout.width, scene->layout.height);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         }
-        
         
         
         if (fboPtr != NULL && fboPtr->hidden == false) {
@@ -557,24 +577,24 @@ void createProperties(Object* objPtr)
         else if (entry.first == "kern")
             objPtr->style.kernel = processAttributeArray<float>(entry.second);
         else if (entry.first == "instrns") {
-            objPtr->instanced.translate = processAttributeArray<float>(entry.second);
-            objPtr->instanced.isInstanced = true;
+            objPtr->instance.translate = processAttributeArray<float>(entry.second);
+            objPtr->instance.instanced = true;
         }
         else if (entry.first == "insscal") {
-            objPtr->instanced.scale = processAttributeArray<float>(entry.second);
-            objPtr->instanced.isInstanced = true;
+            objPtr->instance.scale = processAttributeArray<float>(entry.second);
+            objPtr->instance.instanced = true;
         }
         else if (entry.first == "insfron") {
-            objPtr->instanced.front = processAttributeArray<float>(entry.second);
-            objPtr->instanced.isInstanced = true;
+            objPtr->instance.front = processAttributeArray<float>(entry.second);
+            objPtr->instance.instanced = true;
         }
         else if (entry.first == "insup") {
-            objPtr->instanced.up = processAttributeArray<float>(entry.second);
-            objPtr->instanced.isInstanced = true;
+            objPtr->instance.up = processAttributeArray<float>(entry.second);
+            objPtr->instance.instanced = true;
         }
         else if (entry.first == "insleft") {
-            objPtr->instanced.left = processAttributeArray<float>(entry.second);
-            objPtr->instanced.isInstanced = true;
+            objPtr->instance.left = processAttributeArray<float>(entry.second);
+            objPtr->instance.instanced = true;
         }
         else if (entry.first == "roll")
             objPtr->bone.rollDegree = stof(entry.second);
@@ -625,7 +645,7 @@ void createProperties(Object* objPtr)
     else if (objPtr->type == ObjectType::Framebuffer && objPtr->style.fboType != FboType::shadow)
         fboPtrs.push_back(objPtr);
     else if (objPtr->type == ObjectType::Framebuffer && objPtr->style.fboType == FboType::shadow)
-        shadowFboPtr = objPtr;
+        shadowFboPtrs.push_back(objPtr);
 }
 
 void setShaders(Object* objPtr)
@@ -671,10 +691,11 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "layout(location = 4) in float vTexQty;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 5) in vec3 vTangent;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 6) in vec3 vBitangent;\n" : "";
-            if (objPtr->instanced.isInstanced) {
+            if (objPtr->instance.instanced) {
                 objPtr->shader.vertexShader += (objPtr->material.texture) ? ((objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 7) in mat4 instanceMatrix;\n" : "layout(location = 5) in mat4 instanceMatrix;\n") : "layout(location = 2) in mat4 instanceMatrix;\n";
                 objPtr->shader.vertexShader += (objPtr->material.texture) ? ((objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 11) in mat4 instanceRotationMatrix;\n" : "layout(location = 9) in mat4 instanceRotationMatrix;\n") : "layout(location = 6) in mat4 instanceRotationMatrix;\n";
             }
+            objPtr->shader.vertexShader += "out vec3 VertexPos;\n";
             objPtr->shader.vertexShader += "out vec3 FragPos;\n";
             objPtr->shader.vertexShader += "out vec3 Normal;\n";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "out vec2 TexCoord;\n" : "";
@@ -691,7 +712,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += "uniform mat4 projection;\n";
             objPtr->shader.vertexShader += "uniform mat4 rotation;\n";
             objPtr->shader.vertexShader += "void main() {\n";
-            if (objPtr->instanced.translate.size() > 0)
+            if (objPtr->instance.translate.size() > 0)
                 objPtr->shader.vertexShader += "\tgl_Position = projection * view * model * instanceMatrix * vec4(vPos, 1.0f);\n";
             else
                 objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "\tgl_Position = projection * view * model * vec4(vPos, 1.0f);\n" : "";
@@ -700,7 +721,8 @@ void setShaders(Object* objPtr)
         }
         
         if (objPtr->type == ObjectType::Model) {
-            if (objPtr->instanced.isInstanced) {
+            objPtr->shader.vertexShader += "\tVertexPos = vPos;\n";
+            if (objPtr->instance.instanced) {
                 objPtr->shader.vertexShader += "\tFragPos = vec3(model * instanceMatrix * vec4(vPos, 1.0f));\n";
                 objPtr->shader.vertexShader += "\tNormal = vec3(rotation * instanceRotationMatrix * vec4(vNormal, 1.0f));\n";
             }
@@ -713,7 +735,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexQty = vTexQty;\n" : "";
             if (objPtr->material.normMapIndexes.size() > 0) {
                 objPtr->shader.vertexShader += "\tNormalMatrix = transpose(inverse(mat3(model)));\n";
-                if (objPtr->instanced.isInstanced) {
+                if (objPtr->instance.instanced) {
                     objPtr->shader.vertexShader += "\tTangent = vec3(rotation * instanceRotationMatrix * vec4(vTangent, 1.0f));\n";
                     objPtr->shader.vertexShader += "\tBitangent = vec3(rotation * instanceRotationMatrix * vec4(vBitangent, 1.0f));\n";
                 }
@@ -741,6 +763,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "out vec4 FragColor;\n";
             
         if (objPtr->type == ObjectType::Model) {
+            objPtr->shader.fragmentShader += "in vec3 VertexPos;\n";
             objPtr->shader.fragmentShader += "in vec3 FragPos;\n";
             objPtr->shader.fragmentShader += "in vec3 Normal;\n";
             objPtr->shader.fragmentShader += (objPtr->material.texture) ? "in vec2 TexCoord;\n" : "";
@@ -765,6 +788,7 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "\tfloat cutOff;\n";
             objPtr->shader.fragmentShader += "\tfloat outerCutOff;\n";
             objPtr->shader.fragmentShader += "\tMaterial material;\n";
+            objPtr->shader.fragmentShader += "\tmat4 projection;\n";
             objPtr->shader.fragmentShader += "};\n";
             objPtr->shader.fragmentShader += (objPtr->material.texture) ? "uniform sampler2D textures[" + to_string(objPtr->material.texturesBase64.size()) + "];\n" : "";
             objPtr->shader.fragmentShader += (objPtr->material.specMapIndexes.size() > 0) ? "uniform int specMapIndexes[" + to_string(objPtr->material.specMapIndexes.size()) + "];\n" : "";
@@ -775,13 +799,14 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "uniform int shading;\n";
             objPtr->shader.fragmentShader += "uniform bool gamma;\n";
             objPtr->shader.fragmentShader += "mat3 TBN;\n";
-            objPtr->shader.fragmentShader += "vec4 CalculateLight(Light light, vec3 normal, vec3 viewDir, vec3 fragPos);\n";
+            objPtr->shader.fragmentShader += "vec4 CalculateLight(Light light, vec3 normal, vec3 viewDir, vec3 fragPos, int lightIndex);\n";
             
             if (shadows) {
-                objPtr->shader.fragmentShader += "uniform samplerCube shadowDepthMap;\n";
+                for (int i = 0; i < shadowFboPtrs.size(); i++)
+                    objPtr->shader.fragmentShader += "uniform samplerCube shadowDepthMap" + to_string(i) + ";\n";
                 objPtr->shader.fragmentShader += "uniform float farPlane;\n";
                 objPtr->shader.fragmentShader += "uniform bool shadows;\n";
-                objPtr->shader.fragmentShader += "float CalculateShadow(vec3 lightPos, vec3 fragPos);\n";
+                objPtr->shader.fragmentShader += "float CalculateShadow(vec3 lightPos, vec3 fragPos, int lightIndex);\n";
             }
             
             objPtr->shader.fragmentShader += "void main() {\n";
@@ -806,12 +831,12 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "\tvec4 result = vec4(0.0f);\n";
             objPtr->shader.fragmentShader += "\tfor (int i = 0; i < lights.length(); i++)\n";
             objPtr->shader.fragmentShader += "\t\tif (lights[i].lightType != -1)\n";
-            objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "\t\t\tresult += CalculateLight(lights[i], norm, viewDir, tangentFragPos);\n" : "\t\t\tresult += CalculateLight(lights[i], norm, viewDir, FragPos);\n";
+            objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "\t\t\tresult += CalculateLight(lights[i], norm, viewDir, tangentFragPos, i);\n" : "\t\t\tresult += CalculateLight(lights[i], norm, viewDir, FragPos, i);\n";
             objPtr->shader.fragmentShader += "\tif (gamma)\n";
             objPtr->shader.fragmentShader += "\t\tresult.xyz = pow(result.xyz, vec3(1.0/2.2));\n";
             objPtr->shader.fragmentShader += "\tFragColor = result;\n";
             objPtr->shader.fragmentShader += "}\n";
-            objPtr->shader.fragmentShader += "vec4 CalculateLight(Light light, vec3 normal, vec3 viewDir, vec3 fragPos) {\n";
+            objPtr->shader.fragmentShader += "vec4 CalculateLight(Light light, vec3 normal, vec3 viewDir, vec3 fragPos, int lightIndex) {\n";
             objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "\tvec3 lightPos = TBN * light.position;\n" : "\tvec3 lightPos = light.position;\n";
             objPtr->shader.fragmentShader += "\tvec3 lightDir = normalize(lightPos - fragPos);\n";
             objPtr->shader.fragmentShader += "\tif (light.lightType == 1)\n";
@@ -887,30 +912,31 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "\t}\n";
             
             if (shadows) {
-                objPtr->shader.fragmentShader += "\tfloat shadow = shadows ? CalculateShadow(light.position, fragPos) : 0.0;\n";
+                objPtr->shader.fragmentShader += "\tfloat shadow = shadows ? CalculateShadow(lightPos, fragPos, lightIndex) : 0.0;\n";
 //                objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "\tshadow = 0.0;\n" : "";
                 objPtr->shader.fragmentShader += "\treturn (ambient + (1.0 - shadow) * (diffuse + specular));\n";
 //                objPtr->shader.fragmentShader += "\treturn vec4(vec3(1.0 - shadow), 1.0);\n";
 //                objPtr->shader.fragmentShader += "\treturn (ambient + diffuse + specular);\n";
-                objPtr->shader.fragmentShader += "\tvec4 difspe = diffuse + specular;\n";
-                objPtr->shader.fragmentShader += "\treturn (ambient + vec4((1.0 - shadow) * difspe.xyz, difspe.w));\n";
+//                objPtr->shader.fragmentShader += "\tvec4 difspe = diffuse + specular;\n";
+//                objPtr->shader.fragmentShader += "\treturn (ambient + vec4((1.0 - shadow) * difspe.xyz, difspe.w));\n";
             }
             else
                 objPtr->shader.fragmentShader += "\treturn (ambient + diffuse + specular);\n";
             
             if (shadows) {
                 objPtr->shader.fragmentShader += "}\n";
-                objPtr->shader.fragmentShader += "float CalculateShadow(vec3 lightPos, vec3 fragPos) {\n";
+                objPtr->shader.fragmentShader += "float CalculateShadow(vec3 lightPos, vec3 fragPos, int lightIndex) {\n";
 //                if (objPtr->material.normMapIndexes.size() > 0)
 //                    objPtr->shader.fragmentShader += "\tvec3 fragToLight = fragPos * inverse(TBN) - lightPos * inverse(TBN);\n";
 //                else
                 objPtr->shader.fragmentShader += "\tvec3 fragToLight = fragPos - lightPos;\n";
-                objPtr->shader.fragmentShader += "\tfloat closestDepth = texture(shadowDepthMap, fragToLight).r;\n";
+                objPtr->shader.fragmentShader += "\tfloat closestDepth = 0.0;\n";
+                for (int i = 0; i < shadowFboPtrs.size(); i++)
+                    objPtr->shader.fragmentShader += "\tif (lightIndex == " + to_string(i) + ") closestDepth = texture(shadowDepthMap" + to_string(i) + ", fragToLight).r;\n";
                 objPtr->shader.fragmentShader += "\tclosestDepth *= farPlane;\n";
                 objPtr->shader.fragmentShader += "\tfloat currentDepth = length(fragToLight);\n";
                 objPtr->shader.fragmentShader += "\tfloat bias = 0.05;\n";
-                objPtr->shader.fragmentShader += "\tfloat shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;\n";
-                objPtr->shader.fragmentShader += "\treturn shadow;\n";
+                objPtr->shader.fragmentShader += "\treturn currentDepth - bias > closestDepth ? 1.0 : 0.0;\n";
             }
         }
         else if (objPtr->type == ObjectType::Light) {
@@ -1034,9 +1060,9 @@ void setShaders(Object* objPtr)
             glDeleteShader(geometryShader);
     }
     
-//    if (objPtr->name == "floor") {
+//    if (objPtr->name == "shadowfbo") {
 //        cout << objPtr->shader.vertexShader << endl;
-////        cout << objPtr->shader.geometryShader << endl;
+//        cout << objPtr->shader.geometryShader << endl;
 //        cout << objPtr->shader.fragmentShader << endl;
 //    }
     
@@ -1055,12 +1081,7 @@ void setBuffers(Object* objPtr)
     else {
 //        cout << "object " + objPtr->name + " is drawable, processing buffer phase" << endl;
         
-        glGenVertexArrays(1, &objPtr->shader.vao);
-        glGenBuffers(1, &objPtr->shader.vbo);
-        if (objPtr->shader.faces.size() > 0)
-            glGenBuffers(1, &objPtr->shader.ebo);
-        glBindVertexArray(objPtr->shader.vao);
-        glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.vbo);
+        
         if (objPtr->type == ObjectType::Framebuffer) {
             if (objPtr->style.fboType != FboType::shadow) {
                 glBufferData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * 2 * sizeof(float), NULL, GL_STATIC_DRAW);
@@ -1075,7 +1096,7 @@ void setBuffers(Object* objPtr)
             glBindFramebuffer(GL_FRAMEBUFFER, objPtr->shader.fbo);
             objPtr->objectPtr->material.textures.push_back(*new unsigned int());
             glGenTextures(1, &objPtr->material.textures[0]);
-            GLenum textype = shadows ? GL_TEXTURE_CUBE_MAP : (multiSampling ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D);
+            GLenum textype = objPtr->style.fboType == FboType::shadow ? GL_TEXTURE_CUBE_MAP : (multiSampling ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D);
             glBindTexture(textype, objPtr->material.textures[0]);
             if (objPtr->style.fboType == FboType::shadow) {
                 for (unsigned int i = 0; i < 6; ++i)
@@ -1090,7 +1111,6 @@ void setBuffers(Object* objPtr)
                 glReadBuffer(GL_NONE);
                 if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
                     cout << "ERROR::FRAMEBUFFER:: Shadow framebuffer is not complete!" << endl;
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
             }
             else {
@@ -1138,6 +1158,13 @@ void setBuffers(Object* objPtr)
             
             return;
         }
+        
+        glGenVertexArrays(1, &objPtr->shader.vao);
+        glGenBuffers(1, &objPtr->shader.vbo);
+        if (objPtr->shader.faces.size() > 0)
+            glGenBuffers(1, &objPtr->shader.ebo);
+        glBindVertexArray(objPtr->shader.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.vbo);
         if (objPtr->type == ObjectType::Joint && objPtr->superObject->type == ObjectType::Joint)
             objPtr->shader.vertices.insert(objPtr->shader.vertices.begin(),
                                            objPtr->superObject->shader.vertices.end() - 3,
@@ -1172,26 +1199,26 @@ void setBuffers(Object* objPtr)
                 }
             }
             
-            if (objPtr->instanced.isInstanced) {
-                if (objPtr->instanced.translate.size() >= 3)
-                    objPtr->shader.instanceCount = int(objPtr->instanced.translate.size() / 3);
-                else if (objPtr->instanced.scale.size() >= 3)
-                    objPtr->shader.instanceCount = int(objPtr->instanced.scale.size() / 3);
-                else if (objPtr->instanced.front.size() >= 3)
-                    objPtr->shader.instanceCount = int(objPtr->instanced.front.size() / 3);
-                else if (objPtr->instanced.up.size() >= 3)
-                    objPtr->shader.instanceCount = int(objPtr->instanced.up.size() / 3);
-                else if (objPtr->instanced.left.size() >= 3)
-                    objPtr->shader.instanceCount = int(objPtr->instanced.left.size() / 3);
+            if (objPtr->instance.instanced) {
+                if (objPtr->instance.translate.size() >= 3)
+                    objPtr->shader.instanceCount = int(objPtr->instance.translate.size() / 3);
+                else if (objPtr->instance.scale.size() >= 3)
+                    objPtr->shader.instanceCount = int(objPtr->instance.scale.size() / 3);
+                else if (objPtr->instance.front.size() >= 3)
+                    objPtr->shader.instanceCount = int(objPtr->instance.front.size() / 3);
+                else if (objPtr->instance.up.size() >= 3)
+                    objPtr->shader.instanceCount = int(objPtr->instance.up.size() / 3);
+                else if (objPtr->instance.left.size() >= 3)
+                    objPtr->shader.instanceCount = int(objPtr->instance.left.size() / 3);
                 
                 for (int i = 0; i < objPtr->shader.instanceCount; i++) {
                     glm::mat4 insmatrix, insrotmatrix;
                     glm::vec3 translate, scale, front, up, left;
-                    translate = (objPtr->instanced.translate.size() > 3) ? glm::vec3(objPtr->instanced.translate[i * 3], objPtr->instanced.translate[i * 3 + 1], objPtr->instanced.translate[i * 3 + 2]) : (objPtr->instanced.translate.size() == 3 ? glm::vec3(objPtr->instanced.translate[0], objPtr->instanced.translate[1], objPtr->instanced.translate[2]) : glm::vec3(0.0f));
-                    scale = (objPtr->instanced.scale.size() > 3) ? glm::vec3(objPtr->instanced.scale[i * 3], objPtr->instanced.scale[i * 3 + 1], objPtr->instanced.scale[i * 3 + 2]) : (objPtr->instanced.scale.size() == 3 ? glm::vec3(objPtr->instanced.scale[0], objPtr->instanced.scale[1], objPtr->instanced.scale[2]) : glm::vec3(1.0, 1.0, 1.0));
-                    front = (objPtr->instanced.front.size() > 3) ? glm::vec3(objPtr->instanced.front[i * 3], objPtr->instanced.front[i * 3 + 1], objPtr->instanced.front[i * 3 + 2]) : (objPtr->instanced.front.size() == 3 ? glm::vec3(objPtr->instanced.front[0], objPtr->instanced.front[1], objPtr->instanced.front[2]) : glm::vec3(0.0, 0.0, 1.0));
-                    up = (objPtr->instanced.up.size() > 3) ? glm::vec3(objPtr->instanced.up[i * 3], objPtr->instanced.up[i * 3 + 1], objPtr->instanced.up[i * 3 + 2]) : (objPtr->instanced.up.size() == 3 ? glm::vec3(objPtr->instanced.up[0], objPtr->instanced.up[1], objPtr->instanced.up[2]) : glm::vec3(0.0, 1.0, 0.0));
-                    left = (objPtr->instanced.left.size() > 3) ? glm::vec3(objPtr->instanced.left[i * 3], objPtr->instanced.left[i * 3 + 1], objPtr->instanced.left[i * 3 + 2]) : (objPtr->instanced.left.size() == 3 ? glm::vec3(objPtr->instanced.left[0], objPtr->instanced.left[1], objPtr->instanced.left[2]) : glm::vec3(1.0, 0.0, 0.0));
+                    translate = (objPtr->instance.translate.size() > 3) ? glm::vec3(objPtr->instance.translate[i * 3], objPtr->instance.translate[i * 3 + 1], objPtr->instance.translate[i * 3 + 2]) : (objPtr->instance.translate.size() == 3 ? glm::vec3(objPtr->instance.translate[0], objPtr->instance.translate[1], objPtr->instance.translate[2]) : glm::vec3(0.0f));
+                    scale = (objPtr->instance.scale.size() > 3) ? glm::vec3(objPtr->instance.scale[i * 3], objPtr->instance.scale[i * 3 + 1], objPtr->instance.scale[i * 3 + 2]) : (objPtr->instance.scale.size() == 3 ? glm::vec3(objPtr->instance.scale[0], objPtr->instance.scale[1], objPtr->instance.scale[2]) : glm::vec3(1.0, 1.0, 1.0));
+                    front = (objPtr->instance.front.size() > 3) ? glm::vec3(objPtr->instance.front[i * 3], objPtr->instance.front[i * 3 + 1], objPtr->instance.front[i * 3 + 2]) : (objPtr->instance.front.size() == 3 ? glm::vec3(objPtr->instance.front[0], objPtr->instance.front[1], objPtr->instance.front[2]) : glm::vec3(0.0, 0.0, 1.0));
+                    up = (objPtr->instance.up.size() > 3) ? glm::vec3(objPtr->instance.up[i * 3], objPtr->instance.up[i * 3 + 1], objPtr->instance.up[i * 3 + 2]) : (objPtr->instance.up.size() == 3 ? glm::vec3(objPtr->instance.up[0], objPtr->instance.up[1], objPtr->instance.up[2]) : glm::vec3(0.0, 1.0, 0.0));
+                    left = (objPtr->instance.left.size() > 3) ? glm::vec3(objPtr->instance.left[i * 3], objPtr->instance.left[i * 3 + 1], objPtr->instance.left[i * 3 + 2]) : (objPtr->instance.left.size() == 3 ? glm::vec3(objPtr->instance.left[0], objPtr->instance.left[1], objPtr->instance.left[2]) : glm::vec3(1.0, 0.0, 0.0));
                     insmatrix = glm::translate(glm::mat4(1.0f), translate);
                     insmatrix = glm::scale(insmatrix, scale);
                     insrotmatrix = glm::mat4(left.x,left.y, left.z, 0,
@@ -1199,13 +1226,13 @@ void setBuffers(Object* objPtr)
                                             front.x, front.y, front.z, 0,
                                             0, 0, 0, 1);
                     insmatrix *= insrotmatrix;
-                    objPtr->instanced.instanceMatrices.push_back(insmatrix);
-                    objPtr->instanced.instanceMatrices.push_back(insrotmatrix);
+                    objPtr->instance.instanceMatrices.push_back(insmatrix);
+                    objPtr->instance.instanceMatrices.push_back(insrotmatrix);
                     
                 }
                 glGenBuffers(1, &objPtr->shader.ibo);
                 glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.ibo);
-                glBufferData(GL_ARRAY_BUFFER, objPtr->shader.instanceCount * 2 * sizeof(glm::mat4), &objPtr->instanced.instanceMatrices[0], GL_STATIC_DRAW);
+                glBufferData(GL_ARRAY_BUFFER, objPtr->shader.instanceCount * 2 * sizeof(glm::mat4), &objPtr->instance.instanceMatrices[0], GL_STATIC_DRAW);
             }
         }
         else if (objPtr->type == ObjectType::Text) {
@@ -1241,7 +1268,7 @@ void setBuffers(Object* objPtr)
                     glEnableVertexAttribArray(6);
                 }
             }
-            if (objPtr->instanced.isInstanced) {
+            if (objPtr->instance.instanced) {
                 glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.ibo);
                 glBindVertexArray(objPtr->shader.vao);
                 int attrCount = objPtr->material.texture ? ((objPtr->material.normMapIndexes.size() > 0) ? 7 : 5) : 2;
@@ -1331,7 +1358,8 @@ void setBuffers(Object* objPtr)
             }
             if (shadows) {
                 glUseProgram(objPtr->shader.shaderID);
-                glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "shadowDepthMap"), int(objPtr->material.texturesBase64.size()));
+                for (int i = 0; i < shadowFboPtrs.size(); i++)
+                    glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("shadowDepthMap" + to_string(i)).c_str()), int(objPtr->material.texturesBase64.size()) + i);
             }
         }
         else if (objPtr->type == ObjectType::Light || objPtr->type == ObjectType::Joint) {
@@ -1430,15 +1458,14 @@ void drawScene(Object* objPtr)
             
             if (shadows) {
                 glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, "shadows"), shadows);
-                glUniform1f(glGetUniformLocation(objPtr->shader.shaderID, "farPlane"), shadowFboPtr->layout.y);     // farPlane olarak layout.y kullanıldı
+                glUniform1f(glGetUniformLocation(objPtr->shader.shaderID, "farPlane"), shadowFarPlane);
             }
             
             vector<Object>::iterator it = objects.begin();
-            int index = 0;
             while ((it = find_if(it, objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) != objects.end()) {
+                int index = int(it - objects.begin());
                 if (it->objectPtr->hidden) {
                     glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].lightType").c_str()), -1);
-                    index++;
                     it++;
                     continue;
                 }
@@ -1453,7 +1480,7 @@ void drawScene(Object* objPtr)
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].material.ambient").c_str()), 1, value_ptr(it->objectPtr->material.ambient));
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].material.diffuse").c_str()), 1, value_ptr(it->objectPtr->material.diffuse));
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].material.specular").c_str()), 1, value_ptr(it->objectPtr->material.specular));
-                index++;
+                glUniformMatrix4fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].projection").c_str()), 1, GL_FALSE, value_ptr(it->objectPtr->light.projection));
                 it++;
             }
             
@@ -1464,8 +1491,10 @@ void drawScene(Object* objPtr)
                 }
             }
             if (shadows) {
-                glActiveTexture(GL_TEXTURE0 + int(objPtr->material.textures.size()));
-                glBindTexture(GL_TEXTURE_CUBE_MAP, shadowFboPtr->material.textures[0]);
+                for (int i = 0; i < shadowFboPtrs.size(); i++) {
+                    glActiveTexture(GL_TEXTURE0 + int(objPtr->material.textures.size()) + i);
+                    glBindTexture(GL_TEXTURE_CUBE_MAP, shadowFboPtrs[i]->material.textures[0]);
+                }
             }
         }
         else if (objPtr->type == ObjectType::Light) {
@@ -1502,19 +1531,18 @@ void drawScene(Object* objPtr)
             }
         }
         else if (objPtr->shader.faces.size() > 0) {
-            if (objPtr->instanced.isInstanced)
+            if (objPtr->instance.instanced)
                 glDrawElementsInstanced(GL_TRIANGLES, objPtr->shader.vertexCount, GL_UNSIGNED_INT, 0, objPtr->shader.instanceCount);
             else
                 glDrawElements(GL_TRIANGLES, objPtr->shader.vertexCount, GL_UNSIGNED_INT, 0);
         }
         else {
-            if (objPtr->instanced.isInstanced)
+            if (objPtr->instance.instanced)
                 glDrawArraysInstanced(GL_TRIANGLES, 0, objPtr->shader.vertexCount, objPtr->shader.instanceCount);
             else
                 glDrawArrays(GL_TRIANGLES, 0, objPtr->shader.vertexCount);
         }
             
-        
         glBindVertexArray(0);
         glBindTexture(GL_TEXTURE_2D, 0);
     }
@@ -1544,10 +1572,10 @@ void deleteScene(Object* objPtr)
         deleteScene(objPtr->subObjects[i]);
 }
 
-void drawShadows(Object* objPtr)
+void drawShadows(Object* objPtr, Object* shadowPtr, bool hidden)
 {
     if (objPtr->type == ObjectType::Model && objPtr->shader.vertices.size() > 0 && !objPtr->hidden) {
-        glUseProgram(shadowFboPtr->shader.shaderID);
+        glUseProgram(shadowPtr->shader.shaderID);
         glm::mat4 model = glm::translate(glm::mat4(1.0f), objPtr->transform.position);
         model = glm::scale(model, objPtr->transform.scale);
         glm::mat4 rotation = glm::mat4(objPtr->transform.left.x, objPtr->transform.left.y, objPtr->transform.left.z, 0,
@@ -1555,32 +1583,33 @@ void drawShadows(Object* objPtr)
                           objPtr->transform.front.x, objPtr->transform.front.y, objPtr->transform.front.z, 0,
                           0, 0, 0, 1);
         model *= rotation;
-        glUniformMatrix4fv(glGetUniformLocation(shadowFboPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model));
+        glUniformMatrix4fv(glGetUniformLocation(shadowPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model));
+        int vertexCount = hidden ? 0 : objPtr->shader.vertexCount;
         glBindVertexArray(objPtr->shader.vao);
         if (objPtr->shader.faces.size() > 0) {
-            if (objPtr->instanced.isInstanced) {
-                for (int i = 0; i < objPtr->instanced.instanceMatrices.size(); i++) {
-                    glUniformMatrix4fv(glGetUniformLocation(shadowFboPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model * objPtr->instanced.instanceMatrices[i]));
-                    glDrawElements(GL_TRIANGLES, objPtr->shader.vertexCount, GL_UNSIGNED_INT, 0);
+            if (objPtr->instance.instanced) {
+                for (int i = 0; i < objPtr->instance.instanceMatrices.size(); i++) {
+                    glUniformMatrix4fv(glGetUniformLocation(shadowPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model * objPtr->instance.instanceMatrices[i]));
+                    glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);
                 }
             }
             else
-                glDrawElements(GL_TRIANGLES, objPtr->shader.vertexCount, GL_UNSIGNED_INT, 0);
+                glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);
         }
         else {
-            if (objPtr->instanced.isInstanced) {
-                for (int i = 0; i < objPtr->instanced.instanceMatrices.size(); i++) {
-                    glUniformMatrix4fv(glGetUniformLocation(shadowFboPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model * objPtr->instanced.instanceMatrices[i]));
-                    glDrawArrays(GL_TRIANGLES, 0, objPtr->shader.vertexCount);
+            if (objPtr->instance.instanced) {
+                for (int i = 0; i < objPtr->instance.instanceMatrices.size(); i++) {
+                    glUniformMatrix4fv(glGetUniformLocation(shadowPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model * objPtr->instance.instanceMatrices[i]));
+                    glDrawArrays(GL_TRIANGLES, 0, vertexCount);
                 }
             }
             else
-                glDrawArrays(GL_TRIANGLES, 0, objPtr->shader.vertexCount);
+                glDrawArrays(GL_TRIANGLES, 0, vertexCount);
         }
         glBindVertexArray(0);
     }
     for (int i = 0; i < objPtr->subObjects.size(); i++)
-        drawShadows(objPtr->subObjects[i]);
+        drawShadows(objPtr->subObjects[i], shadowPtr, hidden);
 }
 
 void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -1682,16 +1711,20 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
     
     
     if (key == GLFW_KEY_O && action == GLFW_PRESS) {    // O
-        //option 0
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+        it->objectPtr->light.quadratic *= 5.0f;
     }
     if (key == GLFW_KEY_P && action == GLFW_PRESS) {    // P
-        //option 1
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+        it->objectPtr->light.quadratic /= 5.0f;
     }
     if (key == GLFW_KEY_L && action == GLFW_PRESS) {    // L
-        //option 2
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+        it->objectPtr->light.linear *= 5.0f;
     }
     if (key == GLFW_KEY_SEMICOLON && action == GLFW_PRESS) {    // Ş
-        //option 3
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+        it->objectPtr->light.linear /= 5.0f;
     }
 }
 
@@ -1789,30 +1822,48 @@ void processContinuousInput(GLFWwindow* window)
 //        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
 //            angle *= -1.0;
 //        rotateJoint("leftshoulder", glm::vec3(angle, 0.0, 0.0));
+//        float offset = 0.01f;
+//        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
+//            offset *= -1.0;
+//        locateJoint("leftarm", glm::vec3(offset, 0.0, 0.0));
+        string lightname = commandKeySticked ? "light3" : "light2";
         float offset = 0.01f;
         if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
             offset *= -1.0;
-        locateJoint("leftarm", glm::vec3(offset, 0.0, 0.0));
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
+        it->objectPtr->transform.position += glm::vec3(offset, 0, 0);
     }
     if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS) {
 //        float angle = 0.5f;
 //        if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
 //            angle *= -1.0;
 //        rotateJoint("leftshoulder", glm::vec3(0.0, angle, 0.0));
+//        float offset = 0.01f;
+//        if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
+//            offset *= -1.0;
+//        locateJoint("leftarm", glm::vec3(0.0, offset, 0.0));
+        string lightname = commandKeySticked ? "light3" : "light2";
         float offset = 0.01f;
         if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
             offset *= -1.0;
-        locateJoint("leftarm", glm::vec3(0.0, offset, 0.0));
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
+        it->objectPtr->transform.position += glm::vec3(0, offset, 0);
     }
     if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS) {
 //        float angle = 0.5f;
 //        if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
 //            angle *= -1.0;
 //        rotateJoint("leftshoulder", glm::vec3(0.0, 0.0, angle));
+//        float offset = 0.01f;
+//        if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
+//            offset *= -1.0;
+//        locateJoint("leftarm", glm::vec3(0.0, 0.0, offset));
+        string lightname = commandKeySticked ? "light3" : "light2";
         float offset = 0.01f;
         if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
             offset *= -1.0;
-        locateJoint("leftarm", glm::vec3(0.0, 0.0, offset));
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
+        it->objectPtr->transform.position += glm::vec3(0, 0, offset);
     }
     
     
