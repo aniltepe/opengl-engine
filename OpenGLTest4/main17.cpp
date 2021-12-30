@@ -1,8 +1,8 @@
 //
-//  main16.cpp
+//  main17.cpp
 //  OpenGLTest4
 //
-//  Created by Nazım Anıl Tepe on 03.12.2021.
+//  Created by Nazım Anıl Tepe on 27.12.2021.
 //
 
 #include <glew.h>
@@ -229,7 +229,7 @@ vector<T> processAttributeArray(string s)
 
 int main()
 {
-    Object* scene = createScene(WORK_DIR + "scene16.sce");
+    Object* scene = createScene(WORK_DIR + "scene17.sce");
     
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -676,8 +676,12 @@ void setShaders(Object* objPtr)
         }
         else if (objPtr->type == ObjectType::Framebuffer && objPtr->style.fboType == FboType::shadow) {
             objPtr->shader.vertexShader += "layout(location = 0) in vec3 vPos;\n";
+            objPtr->shader.vertexShader += "layout(location = 1) in vec3 vNormal;\n";
+            objPtr->shader.vertexShader += "layout(location = 2) in vec2 vTexCoord;\n";
+            objPtr->shader.vertexShader += "out VS_OUT { vec2 TexCoord; } vs_out;\n";
             objPtr->shader.vertexShader += "uniform mat4 model;\n";
             objPtr->shader.vertexShader += "void main() {\n";
+            objPtr->shader.vertexShader += "\tvs_out.TexCoord = vTexCoord;\n";
             objPtr->shader.vertexShader += "\tgl_Position = model * vec4(vPos, 1.0);\n";
         }
         
@@ -750,11 +754,15 @@ void setShaders(Object* objPtr)
         
         if (objPtr->type == ObjectType::Framebuffer && objPtr->style.fboType == FboType::shadow) {
             objPtr->shader.fragmentShader += "in vec4 FragPos;\n";
+            objPtr->shader.fragmentShader += "in vec2 TexCoord;\n";
             objPtr->shader.fragmentShader += "uniform vec3 lightPos;\n";
             objPtr->shader.fragmentShader += "uniform float farPlane;\n";
+            objPtr->shader.fragmentShader += "uniform sampler2D textures[1];\n";
             objPtr->shader.fragmentShader += "void main() {\n";
             objPtr->shader.fragmentShader += "\tfloat lightDistance = length(FragPos.xyz - lightPos);\n";
             objPtr->shader.fragmentShader += "\tlightDistance = lightDistance / farPlane;\n";
+            objPtr->shader.fragmentShader += "\tvec4 texv4 = texture(textures[0], TexCoord);\n";
+            objPtr->shader.fragmentShader += "\tif (texv4.a == 0.0) discard;\n";
             objPtr->shader.fragmentShader += "\tgl_FragDepth = lightDistance;\n";
         }
         else
@@ -982,13 +990,16 @@ void setShaders(Object* objPtr)
             objPtr->shader.geometryShader = "#version 330 core\n";
             objPtr->shader.geometryShader += "layout(triangles) in;\n";
             objPtr->shader.geometryShader += "layout(triangle_strip, max_vertices=18) out;\n";
+            objPtr->shader.geometryShader += "in VS_OUT { vec2 TexCoord; } gs_in[];\n";
             objPtr->shader.geometryShader += "uniform mat4 shadowTransforms[6];\n";
             objPtr->shader.geometryShader += "out vec4 FragPos;\n";
+            objPtr->shader.geometryShader += "out vec2 TexCoord;\n";
             objPtr->shader.geometryShader += "void main() {\n";
             objPtr->shader.geometryShader += "\tfor(int face = 0; face < 6; ++face) {\n";
             objPtr->shader.geometryShader += "\t\tgl_Layer = face;\n";
             objPtr->shader.geometryShader += "\t\tfor(int i = 0; i < 3; ++i) {\n";
             objPtr->shader.geometryShader += "\t\t\tFragPos = gl_in[i].gl_Position;\n";
+            objPtr->shader.geometryShader += "\t\t\tTexCoord = gs_in[i].TexCoord;\n";
             objPtr->shader.geometryShader += "\t\t\tgl_Position = shadowTransforms[face] * FragPos;\n";
             objPtr->shader.geometryShader += "\t\t\tEmitVertex();\n";
             objPtr->shader.geometryShader += "\t\t}\n";
@@ -1571,6 +1582,9 @@ void drawShadows(Object* objPtr, Object* shadowPtr, bool hidden)
                           0, 0, 0, 1);
         model *= rotation;
         glUniformMatrix4fv(glGetUniformLocation(shadowPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model));
+        glUniform1i(glGetUniformLocation(shadowPtr->shader.shaderID, "textures[0]"), 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[0]);
         int vertexCount = hidden ? 0 : objPtr->shader.vertexCount;
         glBindVertexArray(objPtr->shader.vao);
         if (objPtr->shader.faces.size() > 0) {
@@ -2264,6 +2278,3 @@ void calculateTangentsBitangents(Object* objPtr)
         objPtr->shader.bitangents.push_back(it->second.z);
     }
 }
-
-
-
