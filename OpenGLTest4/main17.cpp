@@ -34,7 +34,7 @@ using namespace std;
 
 
 enum struct ObjectType : int {
-    Scene, Model, Light, Camera, Joint, Text, Cubemap, Framebuffer
+    Scene, Model, Light, Camera, Joint, Text, Cubemap, Framebuffer, Region
 };
 enum struct LightType : int {
     point, directional, spotlight
@@ -75,7 +75,6 @@ struct Shader {
     vector<float> texOrders;
     vector<float> texQuantities;
     vector<float> tangents;
-    vector<float> bitangents;
     vector<unsigned int> faces;
     int vertexCount;
     int instanceCount;
@@ -97,6 +96,7 @@ struct Light {
     float quadratic;
     float cutOff;
     float outerCutOff;
+    glm::mat4 lightSpace;
 };
 struct Camera {
     float fov;
@@ -132,6 +132,13 @@ struct Instance {
     bool instanced = false;
     vector<glm::mat4> instanceMatrices;
 };
+struct Animation {
+    string animAttr;
+    vector<float> values;
+    vector<float> timestamps;
+    string objPtr;
+    vector<float> initValue;
+};
 struct Object {
     ObjectType type;
     string name;
@@ -150,6 +157,7 @@ struct Object {
     Bone bone;
     Style style;
     Instance instance;
+    vector<Animation*> animations;
 };
 struct Character {
     unsigned int textureID;
@@ -169,11 +177,14 @@ map<GLchar, Character> characters;
 string shading = "phong";
 bool gammaCorrection = false;
 bool multiSampling = false;
+bool showJoints = true;
 bool shadows = false;
 vector<Object*> shadowFboPtrs;
 float shadowFarPlane = 25.0;
+vector<Animation*> animationPtrs;
+float animStart = -1;
+bool animReset = true;
 unsigned int polygonMode = GL_FILL;
-float lastFrame = 0.0f;
 bool commandKeySticked = false;
 
 glm::mat4 projection;
@@ -192,6 +203,7 @@ void setBuffers(Object* objPtr);
 void drawScene(Object* objPtr);
 void deleteScene(Object* objPtr);
 void drawShadows(Object* objPtr, Object* shadowPtr, bool hidden);
+void processAnimationFrames();
 void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action, int mods);
 void processContinuousInput(GLFWwindow* window);
 void resizeFramebuffer(GLFWwindow* window, int width, int height);
@@ -203,7 +215,8 @@ void rotateJoint(string joint, glm::vec3 degrees);
 void locateJoint(string joint, glm::vec3 offset);
 void setPose();
 void resetPose(string joint);
-void calculateTangentsBitangents(Object* objPtr);
+void calculateTangents(Object* objPtr);
+void manipulateHuman();
 
 template <class T>
 vector<T> processAttributeArray(string s)
@@ -222,11 +235,6 @@ vector<T> processAttributeArray(string s)
     return values;
 }
 
-//void messageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam)
-//{
-//  fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n", (type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : ""), type, severity, message );
-//}
-
 int main()
 {
     Object* scene = createScene(WORK_DIR + "scene17.sce");
@@ -239,7 +247,6 @@ int main()
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
-//    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
 
     GLFWwindow* window = glfwCreateWindow(scene->layout.width, scene->layout.height, "OpenGL", NULL, NULL);
     if (window == NULL) {
@@ -263,18 +270,11 @@ int main()
         glfwTerminate();
         return -1;
     }
-    
-    
-//    int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
-//    if (flags & GL_CONTEXT_FLAG_DEBUG_BIT)
-//    {
-//        cout << "debug context" << endl;
-//    }
 
     function<void(Object*)> inheritProperties = [&inheritProperties](Object* obj) {
         if (obj->type == ObjectType::Model || obj->type == ObjectType::Light || obj->type == ObjectType::Joint) {
-            if (obj->dictionary.find("trns") == obj->dictionary.end()) {
-                obj->dictionary.insert(pair<string, string>("trns", obj->superObject->dictionary.at("trns")));
+            if (obj->dictionary.find("trnsf") == obj->dictionary.end()) {
+                obj->dictionary.insert(pair<string, string>("trnsf", obj->superObject->dictionary.at("trnsf")));
                 obj->transform = obj->superObject->transform;
                 if (obj->type == ObjectType::Joint) {
                     obj->bone.rotationXAxis = glm::vec3(obj->transform.left);
@@ -290,6 +290,7 @@ int main()
                 }
             }
             if (obj->superObject->instance.instanced && !obj->instance.instanced) {
+//            if (obj->superObject->instance.instanced && !obj->instance.instanced && obj->type != ObjectType::Joint) {
                 obj->instance.instanced = true;
                 obj->instance.translate = obj->superObject->instance.translate;
                 obj->instance.scale = obj->superObject->instance.scale;
@@ -313,21 +314,25 @@ int main()
     cameraPtr = cameraPtrs[0];
     if (shadowFboPtrs.size() > 0) {
         shadows = true;
-        int lightCount = int(count_if(objects.begin(), objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; }));
-        lightCount--; // zaten bir adet shadow fbo mevcut
-        for (int i = 0; i < lightCount; i++) {
-            Object* objPtr = new Object();
-            objPtr->objectPtr = objPtr;
-            objPtr->index = objIndex++;
-            objPtr->name = shadowFboPtrs[0]->name + to_string(i);
-            objPtr->type = shadowFboPtrs[0]->type;
-            objPtr->style.fboType = shadowFboPtrs[0]->style.fboType;
-            objPtr->layout = shadowFboPtrs[0]->layout;
-            objPtr->shader.vertices.push_back(0.0);
-            objects.push_back(*objPtr);
-            scene->subObjects.push_back(objPtr);
-            objPtr->superObject = scene;
-            shadowFboPtrs.push_back(objPtr);
+        vector<Object>::iterator light = objects.begin();
+        while ((light = find_if(light, objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) != objects.end()) {
+            int index = int(light - objects.begin());
+            if (index != 0) {
+                Object* objPtr = new Object();
+                objPtr->objectPtr = objPtr;
+                objPtr->index = objIndex++;
+                objPtr->name = shadowFboPtrs[0]->name + to_string(index);
+                objPtr->type = shadowFboPtrs[0]->type;
+                objPtr->style.fboType = shadowFboPtrs[0]->style.fboType;
+                objPtr->layout = shadowFboPtrs[0]->layout;
+                objPtr->shader.vertices.push_back(0.0);
+                objects.push_back(*objPtr);
+                scene->subObjects.push_back(objPtr);
+                objPtr->superObject = scene;
+                shadowFboPtrs.push_back(objPtr);
+            }
+            shadowFboPtrs[index]->light.lightType = light->objectPtr->light.lightType;
+            light++;
         }
     }
     
@@ -336,8 +341,6 @@ int main()
     setBuffers(scene);
     
     
-//    glEnable(GL_DEBUG_OUTPUT);
-//    glDebugMessageCallback(messageCallback, 0);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_DEPTH_TEST);
@@ -347,17 +350,43 @@ int main()
     if (multiSampling)
         glEnable(GL_MULTISAMPLE);
     
+    function<void(Object*)> initializeJoints = [&initializeJoints](Object* obj) {
+        if (obj->type == ObjectType::Joint) {
+            if (obj->bone.rotationDegrees != glm::vec3(0.0f)) {
+                glm::vec3 temp = glm::vec3(obj->bone.rotationDegrees);
+                obj->bone.rotationDegrees = glm::vec3(0.0f);
+                rotateJoint(obj->name, temp);
+            }
+            if (obj->bone.locationOffset != glm::vec3(0.0f)) {
+                glm::vec3 temp = glm::vec3(obj->bone.locationOffset);
+                obj->bone.locationOffset = glm::vec3(0.0f);
+                locateJoint(obj->name, temp);
+            }
+        }
+        for (int i = 0; i < obj->subObjects.size(); i++)
+            initializeJoints(obj->subObjects[i]);
+    };
+    initializeJoints(scene);
+    
     
 //    setPose();
 
     
+    int elapsedFrameCount = 0;
+    float lastFrame = 0.0f;
     while (!glfwWindowShouldClose(window))
     {
+        cout << "Frame " << elapsedFrameCount << endl;
+        cout << "Last Frame Time: " << lastFrame << endl;
+        elapsedFrameCount++;
         float currentFrame = glfwGetTime();
         float timeDelta = currentFrame - lastFrame;
         lastFrame = currentFrame;
         float fps = 1 / timeDelta;
-//        cout << fps << endl;
+        cout << "Current Frame Time: " << currentFrame << endl;
+        cout << "FPS: " << fps << endl;
+        
+        processAnimationFrames();
         
         processContinuousInput(window);
         glPolygonMode(GL_FRONT_AND_BACK, polygonMode);
@@ -368,30 +397,39 @@ int main()
         
         if (shadows) {
             float shadowNearPlane = 0.0f;
-            vector<Object>::iterator it = objects.begin();
-            while ((it = find_if(it, objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) != objects.end()) {
-                int index = int(it - objects.begin());
+            vector<Object>::iterator light = objects.begin();
+            while ((light = find_if(light, objects.end(), [] (Object obj) { return obj.type == ObjectType::Light; })) != objects.end()) {
+                int index = int(light - objects.begin());
                 glViewport(0, 0, shadowFboPtrs[index]->layout.width, shadowFboPtrs[index]->layout.height);
                 glBindFramebuffer(GL_FRAMEBUFFER, shadowFboPtrs[index]->shader.fbo);
                 glClear(GL_DEPTH_BUFFER_BIT);
-                glm::mat4 shadowProjection = glm::perspective(glm::radians(90.0f), shadowFboPtrs[index]->layout.width / shadowFboPtrs[index]->layout.height, shadowNearPlane, shadowFarPlane);
-                vector<glm::mat4> shadowTransforms;
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
-                shadowTransforms.push_back(shadowProjection * lookAt(it->objectPtr->transform.position, it->objectPtr->transform.position + glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
-                
-                for (unsigned int i = 0; i < 6; i++) {
-                    glUseProgram(shadowFboPtrs[index]->shader.shaderID);
-                    glUniformMatrix4fv(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, ("shadowTransforms[" + to_string(i) + "]").c_str()), 1, GL_FALSE, value_ptr(shadowTransforms[i]));
+                if (light->objectPtr->light.lightType == LightType::point || light->objectPtr->light.lightType == LightType::spotlight) {
+                    glm::mat4 shadowProjection = glm::perspective(glm::radians(90.0f), shadowFboPtrs[index]->layout.width / shadowFboPtrs[index]->layout.height, shadowNearPlane, shadowFarPlane);
+                    vector<glm::mat4> shadowTransforms;
+                    shadowTransforms.push_back(shadowProjection * lookAt(light->objectPtr->transform.position, light->objectPtr->transform.position + glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+                    shadowTransforms.push_back(shadowProjection * lookAt(light->objectPtr->transform.position, light->objectPtr->transform.position + glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+                    shadowTransforms.push_back(shadowProjection * lookAt(light->objectPtr->transform.position, light->objectPtr->transform.position + glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
+                    shadowTransforms.push_back(shadowProjection * lookAt(light->objectPtr->transform.position, light->objectPtr->transform.position + glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)));
+                    shadowTransforms.push_back(shadowProjection * lookAt(light->objectPtr->transform.position, light->objectPtr->transform.position + glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+                    shadowTransforms.push_back(shadowProjection * lookAt(light->objectPtr->transform.position, light->objectPtr->transform.position + glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+                    
+                    for (unsigned int i = 0; i < 6; i++) {
+                        glUseProgram(shadowFboPtrs[index]->shader.shaderID);
+                        glUniformMatrix4fv(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, ("shadowTransforms[" + to_string(i) + "]").c_str()), 1, GL_FALSE, value_ptr(shadowTransforms[i]));
+                    }
+                    glUniform1f(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, "farPlane"), shadowFarPlane);
+                    glUniform3fv(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, "lightPos"), 1, value_ptr(light->objectPtr->transform.position));
                 }
-                glUniform1f(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, "farPlane"), shadowFarPlane);
-                glUniform3fv(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, "lightPos"), 1, value_ptr(it->objectPtr->transform.position));
-                drawShadows(scene, shadowFboPtrs[index]->objectPtr, it->objectPtr->hidden);
+                else if (light->objectPtr->light.lightType == LightType::directional) {
+                    glm::mat4 shadowProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, shadowNearPlane, shadowFarPlane);
+                    light->objectPtr->light.lightSpace = shadowProjection * lookAt(light->objectPtr->transform.position, light->objectPtr->transform.position + light->objectPtr->transform.front, light->objectPtr->transform.up);
+                    glUseProgram(shadowFboPtrs[index]->shader.shaderID);
+                    glUniformMatrix4fv(glGetUniformLocation(shadowFboPtrs[index]->shader.shaderID, "shadowTransform"), 1, GL_FALSE, value_ptr(light->objectPtr->light.lightSpace));
+                }
+                
+                drawShadows(scene, shadowFboPtrs[index]->objectPtr, light->objectPtr->hidden);
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                it++;
+                light++;
             }
             glViewport(0, 0, scene->layout.width, scene->layout.height);
         }
@@ -401,7 +439,8 @@ int main()
             glBindFramebuffer(GL_FRAMEBUFFER, fboPtr->shader.fbo);
         }
         glEnable(GL_DEPTH_TEST);
-        glClearColor(0.28f, 0.28f, 0.28f, 1.0f);
+//        glClearColor(0.28f, 0.28f, 0.28f, 1.0f);
+        glClearColor(0.8f, 0.8f, 0.8f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         
         drawScene(scene);
@@ -568,10 +607,6 @@ void createProperties(Object* objPtr)
             objPtr->shader.texOrders = processAttributeArray<float>(entry.second);
         else if (entry.first == "tq")
             objPtr->shader.texQuantities = processAttributeArray<float>(entry.second);
-        else if (entry.first == "tgn")
-            objPtr->shader.tangents = processAttributeArray<float>(entry.second);
-        else if (entry.first == "btgn")
-            objPtr->shader.bitangents = processAttributeArray<float>(entry.second);
         else if (entry.first == "kern")
             objPtr->style.kernel = processAttributeArray<float>(entry.second);
         else if (entry.first == "instrns") {
@@ -594,8 +629,6 @@ void createProperties(Object* objPtr)
             objPtr->instance.left = processAttributeArray<float>(entry.second);
             objPtr->instance.instanced = true;
         }
-        else if (entry.first == "roll")
-            objPtr->bone.rollDegree = stof(entry.second);
         else if (entry.first == "info")
             objPtr->style.text = entry.second;
         else if (entry.first == "font")
@@ -609,7 +642,7 @@ void createProperties(Object* objPtr)
             objPtr->material.specular = glm::vec3(sequence[6], sequence[7], sequence[8]);
             objPtr->material.shininess = sequence[9];
         }
-        else if (entry.first == "trns") {
+        else if (entry.first == "trnsf") {
             vector<float> sequence = processAttributeArray<float>(entry.second);
             objPtr->transform.position = glm::vec3(sequence[0], sequence[1], sequence[2]);
             objPtr->transform.scale = glm::vec3(sequence[3], sequence[4], sequence[5]);
@@ -625,6 +658,12 @@ void createProperties(Object* objPtr)
             objPtr->layout.y = sequence[3];
             objPtr->layout.size = sequence[4];
         }
+        else if (entry.first == "ipos") {
+            vector<float> sequence = processAttributeArray<float>(entry.second);
+            objPtr->bone.rollDegree = sequence[0];
+            objPtr->bone.rotationDegrees = glm::vec3(sequence[1], sequence[2], sequence[3]);
+            objPtr->bone.locationOffset = glm::vec3(sequence[4], sequence[5], sequence[6]);
+        }
         else if (entry.first.rfind("tex", 0) == 0) {
             objPtr->material.texturesBase64.push_back(entry.second);
             objPtr->material.texture = true;
@@ -632,6 +671,34 @@ void createProperties(Object* objPtr)
                 objPtr->material.normMapIndexes.push_back((int)objPtr->material.texturesBase64.size() - 1);
             else if (0 == entry.first.compare(entry.first.length() - 2, 2, "sp"))
                 objPtr->material.specMapIndexes.push_back((int)objPtr->material.texturesBase64.size() - 1);
+        }
+        else if (entry.first.rfind("anim", 0) == 0) {
+            string attr = entry.first;
+//            attr.erase(remove(attr.begin(), attr.end(), "anim"), attr.end());
+            attr = attr.replace(0, 4, "");
+            if (0 == attr.compare(attr.length() - 2, 2, "ts")) {
+                attr = attr.replace(attr.length() - 2, 2, "");
+                vector<Animation*>::iterator it = find_if(objPtr->animations.begin(), objPtr->animations.end(), [attr] (Animation* anim) { return anim->animAttr == attr; });
+                Animation* a = *it;
+                a->timestamps = processAttributeArray<float>(entry.second);
+            }
+            else {
+                vector<Animation*>::iterator it = find_if(objPtr->animations.begin(), objPtr->animations.end(), [attr] (Animation* anim) { return anim->animAttr == attr; });
+                if (it == objPtr->animations.end()) {
+                    Animation* animPtr = new Animation();
+                    animPtr->animAttr = attr;
+                    animPtr->values = processAttributeArray<float>(entry.second);
+                    ostringstream oss;
+                    oss << objPtr;
+                    animPtr->objPtr = oss.str();
+                    objPtr->animations.push_back(animPtr);
+                    animationPtrs.push_back(animPtr);
+                }
+                else {
+                    Animation* a = *it;
+                    a->timestamps = processAttributeArray<float>(entry.second);
+                }
+            }
         }
         else if (entry.first == "colo") {
             vector<float> sequence = processAttributeArray<float>(entry.second);
@@ -678,11 +745,21 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += "layout(location = 0) in vec3 vPos;\n";
             objPtr->shader.vertexShader += "layout(location = 1) in vec3 vNormal;\n";
             objPtr->shader.vertexShader += "layout(location = 2) in vec2 vTexCoord;\n";
-            objPtr->shader.vertexShader += "out VS_OUT { vec2 TexCoord; } vs_out;\n";
+            objPtr->shader.vertexShader += "layout(location = 3) in float vTexOrder;\n";
+            objPtr->shader.vertexShader += "layout(location = 4) in float vTexQty;\n";
+            objPtr->shader.vertexShader += objPtr->light.lightType != LightType::directional ? "out VS_OUT { vec2 TexCoord; float TexOrder; float TexQty; } vs_out;\n" : "";
+            objPtr->shader.vertexShader += objPtr->light.lightType == LightType::directional ? "out vec2 TexCoord;\n" : "";
+            objPtr->shader.vertexShader += objPtr->light.lightType == LightType::directional ? "out float TexOrder;\n" : "";
+            objPtr->shader.vertexShader += objPtr->light.lightType == LightType::directional ? "out float TexQty;\n" : "";
+            objPtr->shader.vertexShader += objPtr->light.lightType == LightType::directional ? "uniform mat4 shadowTransform;\n" : "";
             objPtr->shader.vertexShader += "uniform mat4 model;\n";
             objPtr->shader.vertexShader += "void main() {\n";
-            objPtr->shader.vertexShader += "\tvs_out.TexCoord = vTexCoord;\n";
-            objPtr->shader.vertexShader += "\tgl_Position = model * vec4(vPos, 1.0);\n";
+            objPtr->shader.vertexShader += objPtr->light.lightType != LightType::directional ? "\tvs_out.TexCoord = vTexCoord;\n" : "\tTexCoord = vTexCoord;\n";
+            objPtr->shader.vertexShader += objPtr->light.lightType != LightType::directional ? "\tvs_out.TexOrder = vTexOrder;\n" : "\tTexOrder = vTexOrder;\n";
+            objPtr->shader.vertexShader += objPtr->light.lightType != LightType::directional ? "\tvs_out.TexQty = vTexQty;\n" : "\tTexQty = vTexQty;\n";
+            objPtr->shader.vertexShader += objPtr->light.lightType != LightType::directional ? "\tgl_Position = model * vec4(vPos, 1.0);\n" : "";
+            
+            objPtr->shader.vertexShader += objPtr->light.lightType == LightType::directional ? "\tgl_Position = shadowTransform * model * vec4(vPos, 1.0);\n" : "";
         }
         
         
@@ -692,10 +769,9 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "layout(location = 3) in float vTexOrder;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "layout(location = 4) in float vTexQty;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 5) in vec3 vTangent;\n" : "";
-            objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 6) in vec3 vBitangent;\n" : "";
             if (objPtr->instance.instanced) {
-                objPtr->shader.vertexShader += (objPtr->material.texture) ? ((objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 7) in mat4 instanceMatrix;\n" : "layout(location = 5) in mat4 instanceMatrix;\n") : "layout(location = 2) in mat4 instanceMatrix;\n";
-                objPtr->shader.vertexShader += (objPtr->material.texture) ? ((objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 11) in mat4 instanceRotationMatrix;\n" : "layout(location = 9) in mat4 instanceRotationMatrix;\n") : "layout(location = 6) in mat4 instanceRotationMatrix;\n";
+                objPtr->shader.vertexShader += (objPtr->material.texture) ? ((objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 6) in mat4 instanceMatrix;\n" : "layout(location = 5) in mat4 instanceMatrix;\n") : "layout(location = 2) in mat4 instanceMatrix;\n";
+                objPtr->shader.vertexShader += (objPtr->material.texture) ? ((objPtr->material.normMapIndexes.size() > 0) ? "layout(location = 10) in mat4 instanceRotationMatrix;\n" : "layout(location = 9) in mat4 instanceRotationMatrix;\n") : "layout(location = 6) in mat4 instanceRotationMatrix;\n";
             }
             objPtr->shader.vertexShader += "out vec3 VertexPos;\n";
             objPtr->shader.vertexShader += "out vec3 FragPos;\n";
@@ -703,18 +779,19 @@ void setShaders(Object* objPtr)
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "out vec2 TexCoord;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "out float TexOrder;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "out float TexQty;\n" : "";
-            objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "out mat3 NormalMatrix;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "out vec3 Tangent;\n" : "";
-            objPtr->shader.vertexShader += (objPtr->material.normMapIndexes.size() > 0) ? "out vec3 Bitangent;\n" : "";
         }
+        
+        if (objPtr->type == ObjectType::Joint && objPtr->instance.instanced)
+            objPtr->shader.vertexShader += "layout(location = 1) in mat4 instanceMatrix;\n";
         
         if (objPtr->type != ObjectType::Framebuffer) {
             objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "uniform mat4 model;\n" : "";
             objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text) ? "uniform mat4 view;\n" : "";
             objPtr->shader.vertexShader += "uniform mat4 projection;\n";
-            objPtr->shader.vertexShader += "uniform mat4 rotation;\n";
+            objPtr->shader.vertexShader += (objPtr->type == ObjectType::Model) ? "uniform mat4 rotation;\n" : "";
             objPtr->shader.vertexShader += "void main() {\n";
-            if (objPtr->instance.translate.size() > 0)
+            if (objPtr->instance.instanced)
                 objPtr->shader.vertexShader += "\tgl_Position = projection * view * model * instanceMatrix * vec4(vPos, 1.0f);\n";
             else
                 objPtr->shader.vertexShader += (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) ? "\tgl_Position = projection * view * model * vec4(vPos, 1.0f);\n" : "";
@@ -730,21 +807,16 @@ void setShaders(Object* objPtr)
             }
             else {
                 objPtr->shader.vertexShader += "\tFragPos = vec3(model * vec4(vPos, 1.0f));\n";
-                objPtr->shader.vertexShader += "\tNormal = vec3(rotation * vec4(vNormal, 1.0f));\n";
+                objPtr->shader.vertexShader += "\tNormal = vec3(rotation * vec4(vNormal, 0.0f));\n";
             }
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexCoord = vTexCoord;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexOrder = vTexOrder;\n" : "";
             objPtr->shader.vertexShader += (objPtr->material.texture) ? "\tTexQty = vTexQty;\n" : "";
             if (objPtr->material.normMapIndexes.size() > 0) {
-                objPtr->shader.vertexShader += "\tNormalMatrix = transpose(inverse(mat3(model)));\n";
-                if (objPtr->instance.instanced) {
+                if (objPtr->instance.instanced)
                     objPtr->shader.vertexShader += "\tTangent = vec3(rotation * instanceRotationMatrix * vec4(vTangent, 1.0f));\n";
-                    objPtr->shader.vertexShader += "\tBitangent = vec3(rotation * instanceRotationMatrix * vec4(vBitangent, 1.0f));\n";
-                }
-                else {
-                    objPtr->shader.vertexShader += "\tTangent = vec3(rotation * vec4(vTangent, 1.0f));\n";
-                    objPtr->shader.vertexShader += "\tBitangent = vec3(rotation * vec4(vBitangent, 1.0f));\n";
-                }
+                else
+                    objPtr->shader.vertexShader += "\tTangent = vec3(rotation * vec4(vTangent, 0.0f));\n";
             }
         }
         objPtr->shader.vertexShader += "}\0";
@@ -753,17 +825,52 @@ void setShaders(Object* objPtr)
         
         
         if (objPtr->type == ObjectType::Framebuffer && objPtr->style.fboType == FboType::shadow) {
-            objPtr->shader.fragmentShader += "in vec4 FragPos;\n";
-            objPtr->shader.fragmentShader += "in vec2 TexCoord;\n";
-            objPtr->shader.fragmentShader += "uniform vec3 lightPos;\n";
-            objPtr->shader.fragmentShader += "uniform float farPlane;\n";
-            objPtr->shader.fragmentShader += "uniform sampler2D textures[1];\n";
+            int maxTexSize = 0, maxSpecTexSize = 0, maxNormalMapSize = 0;
+            vector<Object>::iterator it = objects.begin();
+            while ((it = find_if(it, objects.end(), [] (Object obj) { return obj.type == ObjectType::Model && obj.material.texture; })) != objects.end()) {
+                if (it->objectPtr->material.texturesBase64.size() > maxTexSize) maxTexSize = int(it->objectPtr->material.texturesBase64.size());
+                if (it->objectPtr->material.specMapIndexes.size() > maxSpecTexSize) maxSpecTexSize = int(it->objectPtr->material.specMapIndexes.size());
+                if (it->objectPtr->material.normMapIndexes.size() > maxNormalMapSize) maxNormalMapSize = int(it->objectPtr->material.normMapIndexes.size());
+                it++;
+            }
+            objPtr->shader.fragmentShader += objPtr->light.lightType != LightType::directional ? "in vec4 FragPos;\n" : "";
+            objPtr->shader.fragmentShader += maxTexSize > 0 ? "in vec2 TexCoord;\n" : "";
+            objPtr->shader.fragmentShader += maxTexSize > 0 ? "in float TexOrder;\n" : "";
+            objPtr->shader.fragmentShader += maxTexSize > 0 ? "in float TexQty;\n" : "";
+            objPtr->shader.fragmentShader += objPtr->light.lightType != LightType::directional ? "uniform vec3 lightPos;\n" : "";
+            objPtr->shader.fragmentShader += objPtr->light.lightType != LightType::directional ? "uniform float farPlane;\n" : "";
+            objPtr->shader.fragmentShader += maxTexSize > 0 ? "uniform sampler2D textures[" + to_string(maxTexSize) + "];\n" : "";
+            objPtr->shader.fragmentShader += maxSpecTexSize > 0 ? "uniform int specMapIndexes[" + to_string(maxSpecTexSize) + "];\n" : "";
+            objPtr->shader.fragmentShader += maxNormalMapSize > 0 ? "uniform int normMapIndexes[" + to_string(maxNormalMapSize) + "];\n" : "";
             objPtr->shader.fragmentShader += "void main() {\n";
-            objPtr->shader.fragmentShader += "\tfloat lightDistance = length(FragPos.xyz - lightPos);\n";
-            objPtr->shader.fragmentShader += "\tlightDistance = lightDistance / farPlane;\n";
-            objPtr->shader.fragmentShader += "\tvec4 texv4 = texture(textures[0], TexCoord);\n";
-            objPtr->shader.fragmentShader += "\tif (texv4.a == 0.0) discard;\n";
-            objPtr->shader.fragmentShader += "\tgl_FragDepth = lightDistance;\n";
+            objPtr->shader.fragmentShader += objPtr->light.lightType != LightType::directional ? "\tfloat lightDistance = length(FragPos.xyz - lightPos);\n" : "";
+            objPtr->shader.fragmentShader += objPtr->light.lightType != LightType::directional ? "\tlightDistance = lightDistance / farPlane;\n" : "";
+            objPtr->shader.fragmentShader += "\tint complexOrder = int(TexOrder);\n";
+            objPtr->shader.fragmentShader += "\tint texQuantity = int(TexQty);\n";
+            objPtr->shader.fragmentShader += "\tfor (int i = 0; i < texQuantity; i++) {\n";
+            objPtr->shader.fragmentShader += "\t\tint remainder = complexOrder;\n";
+            objPtr->shader.fragmentShader += "\t\tint division;\n";
+            objPtr->shader.fragmentShader += "\t\tfor (int j = texQuantity; j > i; j--) {\n";
+            objPtr->shader.fragmentShader += "\t\t\tdivision = int(remainder / pow(2, 4 * (j - 1)));\n";
+            objPtr->shader.fragmentShader += "\t\t\tremainder = remainder - int(division * pow(2, 4 * (j - 1)));\n";
+            objPtr->shader.fragmentShader += "\t\t}\n";
+            objPtr->shader.fragmentShader += "\t\tint order = division;\n";
+            objPtr->shader.fragmentShader += "\t\tbool specMap = false;\n";
+            objPtr->shader.fragmentShader += "\t\tbool normMap = false;\n";
+            objPtr->shader.fragmentShader += (maxSpecTexSize > 0) ? "\t\tfor (int j = 0; j < specMapIndexes.length(); j++)\n" : "";
+            objPtr->shader.fragmentShader += (maxSpecTexSize > 0) ? "\t\t\tif (specMapIndexes[j] == order)\n" : "";
+            objPtr->shader.fragmentShader += (maxSpecTexSize > 0) ? "\t\t\t\tspecMap = true;\n" : "";
+            objPtr->shader.fragmentShader += (maxNormalMapSize > 0) ? "\t\tfor (int j = 0; j < normMapIndexes.length(); j++)\n" : "";
+            objPtr->shader.fragmentShader += (maxNormalMapSize > 0) ? "\t\t\tif (normMapIndexes[j] == order)\n" : "";
+            objPtr->shader.fragmentShader += (maxNormalMapSize > 0) ? "\t\t\t\tnormMap = true;\n" : "";
+            objPtr->shader.fragmentShader += "\t\tif (normMap || specMap)\n";
+            objPtr->shader.fragmentShader += "\t\t\tcontinue;\n";
+            objPtr->shader.fragmentShader += "\t\tvec4 texv4 = texture(textures[order], TexCoord);\n";
+            objPtr->shader.fragmentShader += "\t\tif (texv4.a == 0.0) discard;\n";
+            objPtr->shader.fragmentShader += "\t}\n";
+            objPtr->shader.fragmentShader += objPtr->light.lightType != LightType::directional ? "\tgl_FragDepth = lightDistance;\n" : "";
+            
+            objPtr->shader.fragmentShader += objPtr->light.lightType == LightType::directional ? "\tgl_FragDepth = gl_FragCoord.z;\n" : "";
         }
         else
             objPtr->shader.fragmentShader += "out vec4 FragColor;\n";
@@ -777,7 +884,6 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += (objPtr->material.texture) ? "in float TexQty;\n" : "";
             objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "in mat3 NormalMatrix;\n" : "";
             objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "in vec3 Tangent;\n" : "";
-            objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "in vec3 Bitangent;\n" : "";
             objPtr->shader.fragmentShader += "struct Material {\n";
             objPtr->shader.fragmentShader += "\tvec3 ambient;\n";
             objPtr->shader.fragmentShader += "\tvec3 diffuse;\n";
@@ -794,8 +900,12 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "\tfloat cutOff;\n";
             objPtr->shader.fragmentShader += "\tfloat outerCutOff;\n";
             objPtr->shader.fragmentShader += "\tMaterial material;\n";
+            objPtr->shader.fragmentShader += "\tmat4 lightSpace;\n";
             objPtr->shader.fragmentShader += "};\n";
-            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "uniform sampler2D textures[" + to_string(objPtr->material.texturesBase64.size()) + "];\n" : "";
+//            objPtr->shader.fragmentShader += (objPtr->material.texture) ? "uniform sampler2D textures[" + to_string(objPtr->material.texturesBase64.size()) + "];\n" : "";
+            if (objPtr->material.texture)
+                for (int i = 0; i < objPtr->material.texturesBase64.size(); i++)
+                    objPtr->shader.fragmentShader += "uniform sampler2D texture" + to_string(i) + ";\n";
             objPtr->shader.fragmentShader += (objPtr->material.specMapIndexes.size() > 0) ? "uniform int specMapIndexes[" + to_string(objPtr->material.specMapIndexes.size()) + "];\n" : "";
             objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "uniform int normMapIndexes[" + to_string(objPtr->material.normMapIndexes.size()) + "];\n" : "";
             objPtr->shader.fragmentShader += "uniform vec3 cameraPos;\n";
@@ -804,62 +914,87 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "uniform int shading;\n";
             objPtr->shader.fragmentShader += "uniform bool gamma;\n";
             objPtr->shader.fragmentShader += "mat3 TBN;\n";
-            objPtr->shader.fragmentShader += "vec4 CalculateLight(Light light, vec3 normal, vec3 viewDir, vec3 fragPos, int lightIndex);\n";
+            objPtr->shader.fragmentShader += "vec4 CalculateLight(vec3 normal, vec3 viewDir, int lightIndex);\n";
             
             if (shadows) {
-                for (int i = 0; i < shadowFboPtrs.size(); i++)
-                    objPtr->shader.fragmentShader += "uniform samplerCube shadowDepthMap" + to_string(i) + ";\n";
+                for (int i = 0; i < shadowFboPtrs.size(); i++) {
+                    if (shadowFboPtrs[i]->light.lightType == LightType::point || shadowFboPtrs[i]->light.lightType == LightType::spotlight)
+                        objPtr->shader.fragmentShader += "uniform samplerCube shadowDepthMap" + to_string(i) + ";\n";
+                    else if (shadowFboPtrs[i]->light.lightType == LightType::directional)
+                        objPtr->shader.fragmentShader += "uniform sampler2D shadowDepthMap" + to_string(i) + ";\n";
+                }
                 objPtr->shader.fragmentShader += "uniform float farPlane;\n";
                 objPtr->shader.fragmentShader += "uniform bool shadows;\n";
-                objPtr->shader.fragmentShader += "float CalculateShadow(vec3 lightPos, vec3 fragPos, int lightIndex);\n";
+                objPtr->shader.fragmentShader += "float CalculateShadow(int lightIndex);\n";
+//                objPtr->shader.fragmentShader += "vec3 gridSamplingDisk[20] = vec3[](vec3(1, 1, 1), vec3(1, -1, 1), vec3(-1, -1, 1), vec3(-1, 1, 1), vec3(1, 1, -1), vec3(1, -1, -1), vec3(-1, -1, -1), vec3(-1, 1, -1), vec3(1, 1, 0), vec3(1, -1, 0), vec3(-1, -1, 0), vec3(-1, 1, 0), vec3(1, 0, 1), vec3(-1, 0, 1), vec3(1, 0, -1), vec3(-1, 0, -1), vec3(0, 1, 1), vec3(0, -1, 1), vec3(0, -1, -1), vec3(0, 1, -1));\n";
+                objPtr->shader.fragmentShader += "vec3 gridSamplingDisk[20] = vec3[](vec3(0.2, 0.2, 0.2), vec3(0.2, -0.2, 0.2), vec3(-0.2, -0.2, 0.2), vec3(-0.2, 0.2, 0.2), vec3(0.2, 0.2, -0.2), vec3(0.2, -0.2, -0.2), vec3(-0.2, -0.2, -0.2), vec3(-0.2, 0.2, -0.2), vec3(0.2, 0.2, 0), vec3(0.2, -0.2, 0), vec3(-0.2, -0.2, 0), vec3(-0.2, 0.2, 0), vec3(0.2, 0, 0.2), vec3(-0.2, 0, 0.2), vec3(0.2, 0, -0.2), vec3(-0.2, 0, -0.2), vec3(0, 0.2, 0.2), vec3(0, -0.2, 0.2), vec3(0, -0.2, -0.2), vec3(0, 0.2, -0.2));\n";
             }
             
             objPtr->shader.fragmentShader += "void main() {\n";
+            objPtr->shader.fragmentShader += "\tvec3 N = normalize(Normal);\n";
             if (objPtr->material.normMapIndexes.size() > 0) {
-                objPtr->shader.fragmentShader += "\tvec3 T = normalize(NormalMatrix * Tangent);\n";
-                objPtr->shader.fragmentShader += "\tvec3 B = normalize(NormalMatrix * Bitangent);\n";
-                objPtr->shader.fragmentShader += "\tvec3 N = normalize(NormalMatrix * Normal);\n";
-                objPtr->shader.fragmentShader += "\tTBN = transpose(mat3(T, B, N));\n";
-                objPtr->shader.fragmentShader += "\tvec3 tangentCameraPos = TBN * cameraPos;\n";
-                objPtr->shader.fragmentShader += "\tvec3 tangentFragPos = TBN * FragPos;\n";
-                objPtr->shader.fragmentShader += "\tvec3 norm = vec3(0.0f);\n";
-                objPtr->shader.fragmentShader += "\tfor(int i = 0; i < normMapIndexes.length(); i++) {\n";
-                objPtr->shader.fragmentShader += "\t\tnorm += texture(textures[normMapIndexes[i]], TexCoord).rgb;\n";
+                objPtr->shader.fragmentShader += "\tvec3 T = normalize(Tangent);\n";
+                objPtr->shader.fragmentShader += "\tT = normalize(T - dot(T, N) * N);\n";
+                objPtr->shader.fragmentShader += "\tvec3 B = cross(N, T);\n";
+                objPtr->shader.fragmentShader += "\tTBN = mat3(T, B, N);\n";
+                objPtr->shader.fragmentShader += "\tint complexOrder = int(TexOrder);\n";
+                objPtr->shader.fragmentShader += "\tint texQuantity = int(TexQty);\n";
+                objPtr->shader.fragmentShader += "\tfor (int i = 0; i < texQuantity; i++) {\n";
+                objPtr->shader.fragmentShader += "\t\tint remainder = complexOrder;\n";
+                objPtr->shader.fragmentShader += "\t\tint division;\n";
+                objPtr->shader.fragmentShader += "\t\tfor (int j = texQuantity; j > i; j--) {\n";
+                objPtr->shader.fragmentShader += "\t\t\tdivision = int(remainder / pow(2, 4 * (j - 1)));\n";
+                objPtr->shader.fragmentShader += "\t\t\tremainder = remainder - int(division * pow(2, 4 * (j - 1)));\n";
+                objPtr->shader.fragmentShader += "\t\t}\n";
+                objPtr->shader.fragmentShader += "\t\tint order = division;\n";
+                objPtr->shader.fragmentShader += "\t\tbool normMap = false;\n";
+                objPtr->shader.fragmentShader += "\t\tfor (int j = 0; j < normMapIndexes.length(); j++)\n";
+                objPtr->shader.fragmentShader += "\t\t\tif (normMapIndexes[j] == order)\n";
+                objPtr->shader.fragmentShader += "\t\t\t\tnormMap = true;\n";
+                objPtr->shader.fragmentShader += "\t\tif (normMap) {\n";
+                objPtr->shader.fragmentShader += "\t\t\tvec4 texv4 = vec4(0.0);\n";
+                for (int i = 0; i < objPtr->material.texturesBase64.size(); i++)
+                    objPtr->shader.fragmentShader += "\t\t\tif (order == " + to_string(i) + ") texv4 = texture(texture" + to_string(i) + ", TexCoord);\n";
+//                objPtr->shader.fragmentShader += "\t\t\tvec4 texv4 = texture(textures[order], TexCoord);\n";
+                objPtr->shader.fragmentShader += "\t\t\tvec3 norm = texv4.rgb;\n";
+                objPtr->shader.fragmentShader += "\t\t\tnorm = normalize(norm * 2.0 - 1.0);\n";
+                objPtr->shader.fragmentShader += "\t\t\tN = normalize(TBN * norm);\n";
+                objPtr->shader.fragmentShader += "\t\t\tbreak;\n";
+                objPtr->shader.fragmentShader += "\t\t}\n";
                 objPtr->shader.fragmentShader += "\t}\n";
-                objPtr->shader.fragmentShader += "\tnorm /= normMapIndexes.length();\n";
-                objPtr->shader.fragmentShader += "\tnorm = normalize(norm * 2.0 - 1.0);\n";
             }
-            else
-                objPtr->shader.fragmentShader += "\tvec3 norm = normalize(Normal);\n";
-            objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "\tvec3 viewDir = normalize(tangentCameraPos - tangentFragPos);\n" : "\tvec3 viewDir = normalize(cameraPos - FragPos);\n";
+            objPtr->shader.fragmentShader += "\tvec3 viewDir = normalize(cameraPos - FragPos);\n";
             objPtr->shader.fragmentShader += "\tvec4 result = vec4(0.0f);\n";
             objPtr->shader.fragmentShader += "\tfor (int i = 0; i < lights.length(); i++)\n";
             objPtr->shader.fragmentShader += "\t\tif (lights[i].lightType != -1)\n";
-            objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "\t\t\tresult += CalculateLight(lights[i], norm, viewDir, tangentFragPos, i);\n" : "\t\t\tresult += CalculateLight(lights[i], norm, viewDir, FragPos, i);\n";
+            objPtr->shader.fragmentShader += "\t\t\tresult += CalculateLight(N, viewDir, i);\n";
             objPtr->shader.fragmentShader += "\tif (gamma)\n";
             objPtr->shader.fragmentShader += "\t\tresult.xyz = pow(result.xyz, vec3(1.0/2.2));\n";
             objPtr->shader.fragmentShader += "\tFragColor = result;\n";
             objPtr->shader.fragmentShader += "}\n";
-            objPtr->shader.fragmentShader += "vec4 CalculateLight(Light light, vec3 normal, vec3 viewDir, vec3 fragPos, int lightIndex) {\n";
-            objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "\tvec3 lightPos = TBN * light.position;\n" : "\tvec3 lightPos = light.position;\n";
-            objPtr->shader.fragmentShader += "\tvec3 lightDir = normalize(lightPos - fragPos);\n";
-            objPtr->shader.fragmentShader += "\tif (light.lightType == 1)\n";
-            objPtr->shader.fragmentShader += "\t\tlightDir = normalize(-light.direction);\n";
+            objPtr->shader.fragmentShader += "vec4 CalculateLight(vec3 normal, vec3 viewDir, int lightIndex) {\n";
+            objPtr->shader.fragmentShader += "\tfloat shadow = 0.0;\n";
+            objPtr->shader.fragmentShader += shadows ? "\tshadow = CalculateShadow(lightIndex);\n" : "";
+            objPtr->shader.fragmentShader += "\tvec3 lightPos = lights[lightIndex].position;\n";
+            objPtr->shader.fragmentShader += "\tvec3 lightDir = normalize(lightPos - FragPos);\n";
+            objPtr->shader.fragmentShader += "\tif (lights[lightIndex].lightType == 1)\n";
+            objPtr->shader.fragmentShader += "\t\tlightDir = normalize(-lights[lightIndex].direction);\n";
             objPtr->shader.fragmentShader += "\tfloat diffStrength = max(dot(normal, lightDir), 0.0);\n";
+//            objPtr->shader.fragmentShader += "\tfloat diffStrength = max(dot(lightDir, normal), 0.0);\n";
             objPtr->shader.fragmentShader += "\tvec3 reflectDir = reflect(-lightDir, normal);\n";
             objPtr->shader.fragmentShader += "\tvec3 halfwayDir = normalize(lightDir + viewDir);\n";
             objPtr->shader.fragmentShader += "\tfloat specStrength = 0.0f;\n";
             objPtr->shader.fragmentShader += "\tif (shading == 0)\n";
             objPtr->shader.fragmentShader += "\t\tspecStrength = pow(max(dot(viewDir, reflectDir), 0.0), modelMaterial.shininess);\n";
             objPtr->shader.fragmentShader += "\telse if (shading == 1)\n";
-            objPtr->shader.fragmentShader += "\t\tspecStrength = pow(max(dot(normal, halfwayDir), 0.9), modelMaterial.shininess);\n";
+            objPtr->shader.fragmentShader += "\t\tspecStrength = pow(max(dot(normal, halfwayDir), 0.0), modelMaterial.shininess);\n";
             
+            objPtr->shader.fragmentShader += "\tvec4 ambient = vec4(-1.0);\n";
+            objPtr->shader.fragmentShader += "\tvec4 diffuse = vec4(-1.0);\n";
+            objPtr->shader.fragmentShader += "\tvec4 specular = vec4(0.0);\n";
             if (objPtr->material.texture) {
                 objPtr->shader.fragmentShader += "\tint complexOrder = int(TexOrder);\n";
                 objPtr->shader.fragmentShader += "\tint texQuantity = int(TexQty);\n";
-                objPtr->shader.fragmentShader += "\tvec4 ambient = vec4(0.0f);\n";
-                objPtr->shader.fragmentShader += "\tvec4 diffuse = vec4(0.0f);\n";
-                objPtr->shader.fragmentShader += "\tvec4 specular = vec4(0.0f);\n";
                 objPtr->shader.fragmentShader += "\tfor (int i = 0; i < texQuantity; i++) {\n";
                 objPtr->shader.fragmentShader += "\t\tint remainder = complexOrder;\n";
                 objPtr->shader.fragmentShader += "\t\tint division;\n";
@@ -878,24 +1013,25 @@ void setShaders(Object* objPtr)
                 objPtr->shader.fragmentShader += (objPtr->material.normMapIndexes.size() > 0) ? "\t\t\t\tnormMap = true;\n" : "";
                 objPtr->shader.fragmentShader += "\t\tif (normMap)\n";
                 objPtr->shader.fragmentShader += "\t\t\tcontinue;\n";
-                objPtr->shader.fragmentShader += "\t\tvec4 texv4 = texture(textures[order], TexCoord);\n";
+                objPtr->shader.fragmentShader += "\t\tvec4 texv4 = vec4(0.0);\n";
+                for (int i = 0; i < objPtr->material.texturesBase64.size(); i++)
+                    objPtr->shader.fragmentShader += "\t\tif (order == " + to_string(i) + ") texv4 = texture(texture" + to_string(i) + ", TexCoord);\n";
+//                objPtr->shader.fragmentShader += "\t\tvec4 texv4 = texture(textures[order], TexCoord);\n";
                 objPtr->shader.fragmentShader += "\t\tif (specMap)\n";
-                objPtr->shader.fragmentShader += "\t\t\tspecular += vec4(light.material.specular, 1.0f) * specStrength * texture(textures[order], TexCoord);\n";
+                objPtr->shader.fragmentShader += "\t\t\tspecular = vec4(lights[lightIndex].material.specular, 1.0f) * specStrength * texv4;\n";
                 objPtr->shader.fragmentShader += "\t\telse {\n";
-                objPtr->shader.fragmentShader += "\t\t\tambient += vec4(light.material.ambient, 1.0f) * texture(textures[order], TexCoord) * vec4(modelMaterial.diffuse, 1.0f);\n";
-                objPtr->shader.fragmentShader += "\t\t\tdiffuse += vec4(light.material.diffuse, 1.0f) * diffStrength * texture(textures[order], TexCoord) * vec4(modelMaterial.diffuse, 1.0f);\n";
+                objPtr->shader.fragmentShader += "\t\t\tambient = vec4(lights[lightIndex].material.ambient, 1.0f) * texv4 * vec4(modelMaterial.diffuse, 1.0f);\n";
+                objPtr->shader.fragmentShader += "\t\t\tdiffuse = vec4(lights[lightIndex].material.diffuse, 1.0f) * diffStrength * texv4 * vec4(modelMaterial.diffuse, 1.0f);\n";
                 objPtr->shader.fragmentShader += "\t\t}\n";
                 objPtr->shader.fragmentShader += "\t}\n";
             }
-            else {
-                objPtr->shader.fragmentShader += "\tvec4 ambient = vec4(light.material.ambient, 1.0f) * vec4(modelMaterial.ambient, 1.0f);\n";
-                objPtr->shader.fragmentShader += "\tvec4 diffuse = vec4(light.material.diffuse, 1.0f) * diffStrength * vec4(modelMaterial.diffuse, 1.0f);\n";
-                objPtr->shader.fragmentShader += "\tvec4 specular = vec4(light.material.specular, 1.0f) * specStrength * vec4(modelMaterial.specular, 1.0f);\n";
-            }
+            objPtr->shader.fragmentShader += "\tif (ambient == vec4(-1.0)) ambient = vec4(lights[lightIndex].material.ambient, 1.0f) * vec4(modelMaterial.ambient, 1.0f);\n";
+            objPtr->shader.fragmentShader += "\tif (diffuse == vec4(-1.0)) diffuse = vec4(lights[lightIndex].material.diffuse, 1.0f) * diffStrength * vec4(modelMaterial.diffuse, 1.0f);\n";
+//            objPtr->shader.fragmentShader += "\tif (specular == vec4(0.0)) specular += vec4(lights[lightIndex].material.specular, 1.0f) * specStrength * vec4(modelMaterial.specular, 1.0f);\n";
             
-            objPtr->shader.fragmentShader += "\tif (light.lightType != 1) {\n";
-            objPtr->shader.fragmentShader += "\t\tfloat distance = length(lightPos - fragPos);\n";
-            objPtr->shader.fragmentShader += "\t\tfloat attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));\n";
+            objPtr->shader.fragmentShader += "\tif (lights[lightIndex].lightType != 1) {\n";
+            objPtr->shader.fragmentShader += "\t\tfloat distance = length(lightPos - FragPos);\n";
+            objPtr->shader.fragmentShader += "\t\tfloat attenuation = 1.0 / (lights[lightIndex].constant + lights[lightIndex].linear * distance + lights[lightIndex].quadratic * (distance * distance));\n";
             objPtr->shader.fragmentShader += "\t\tambient.xyz *= attenuation;\n";
             objPtr->shader.fragmentShader += "\t\tdiffuse.xyz *= attenuation;\n";
             objPtr->shader.fragmentShader += "\t\tspecular.xyz *= attenuation;\n";
@@ -905,34 +1041,51 @@ void setShaders(Object* objPtr)
             objPtr->shader.fragmentShader += "\t\tdiffuse.xyz *= 1.0 / (distance * distance);\n";
             objPtr->shader.fragmentShader += "\t\tspecular.xyz *= 1.0 / (distance * distance);\n";
             objPtr->shader.fragmentShader += "\t\t}\n";
-            objPtr->shader.fragmentShader += "\t\tif (light.lightType == 2) {\n";
-            objPtr->shader.fragmentShader += "\t\t\tfloat theta = dot(lightDir, normalize(-light.direction));\n";
-            objPtr->shader.fragmentShader += "\t\t\tfloat epsilon = light.cutOff - light.outerCutOff;\n";
-            objPtr->shader.fragmentShader += "\t\t\tfloat intensity = clamp((theta - light.outerCutOff) / epsilon, 0.0, 1.0);\n";
+            objPtr->shader.fragmentShader += "\t\tif (lights[lightIndex].lightType == 2) {\n";
+            objPtr->shader.fragmentShader += "\t\t\tfloat theta = dot(lightDir, normalize(-lights[lightIndex].direction));\n";
+            objPtr->shader.fragmentShader += "\t\t\tfloat epsilon = lights[lightIndex].cutOff - lights[lightIndex].outerCutOff;\n";
+            objPtr->shader.fragmentShader += "\t\t\tfloat intensity = 0.0;\n";
+            objPtr->shader.fragmentShader += "\t\t\tintensity += clamp((theta - lights[lightIndex].outerCutOff) / epsilon, 0.0, 1.0);\n";
             objPtr->shader.fragmentShader += "\t\t\tambient.xyz *= intensity;\n";
             objPtr->shader.fragmentShader += "\t\t\tdiffuse.xyz *= intensity;\n";
             objPtr->shader.fragmentShader += "\t\t\tspecular.xyz *= intensity;\n";
             objPtr->shader.fragmentShader += "\t\t}\n";
             objPtr->shader.fragmentShader += "\t}\n";
-            
-            if (shadows && objPtr->material.normMapIndexes.size() == 0) {
-                objPtr->shader.fragmentShader += "\tfloat shadow = shadows ? CalculateShadow(light.position, FragPos, lightIndex) : 0.0;\n";
-                objPtr->shader.fragmentShader += "\treturn (ambient + (1.0 - shadow) * (diffuse + specular));\n";
-            }
-            else
-                objPtr->shader.fragmentShader += "\treturn (ambient + diffuse + specular);\n";
+            objPtr->shader.fragmentShader += "\treturn (ambient + (1.0 - shadow) * (diffuse + specular));\n";
             
             if (shadows) {
                 objPtr->shader.fragmentShader += "}\n";
-                objPtr->shader.fragmentShader += "float CalculateShadow(vec3 lightPos, vec3 fragPos, int lightIndex) {\n";
-                objPtr->shader.fragmentShader += "\tvec3 fragToLight = fragPos - lightPos;\n";
-                objPtr->shader.fragmentShader += "\tfloat closestDepth = 0.0;\n";
-                for (int i = 0; i < shadowFboPtrs.size(); i++)
-                    objPtr->shader.fragmentShader += "\tif (lightIndex == " + to_string(i) + ") closestDepth = texture(shadowDepthMap" + to_string(i) + ", fragToLight).r;\n";
-                objPtr->shader.fragmentShader += "\tclosestDepth *= farPlane;\n";
+                objPtr->shader.fragmentShader += "float CalculateShadow(int lightIndex) {\n";
+                objPtr->shader.fragmentShader += "\tvec3 fragToLight = FragPos - lights[lightIndex].position;\n";
+                objPtr->shader.fragmentShader += "\tif (lights[lightIndex].lightType == 1) {\n";
+                objPtr->shader.fragmentShader += "\t\tvec4 lightSpaceVec = lights[lightIndex].lightSpace * vec4(FragPos, 1.0);\n";
+                objPtr->shader.fragmentShader += "\t\tfragToLight = lightSpaceVec.xyz / lightSpaceVec.w;\n";
+                objPtr->shader.fragmentShader += "\t\tfragToLight = fragToLight * 0.5 + 0.5;\n";
+                objPtr->shader.fragmentShader += "\t}\n";
                 objPtr->shader.fragmentShader += "\tfloat currentDepth = length(fragToLight);\n";
+                objPtr->shader.fragmentShader += "\tif (lights[lightIndex].lightType == 1) currentDepth = fragToLight.z;\n";
+                objPtr->shader.fragmentShader += "\tfloat closestDepth = 0.0;\n";
                 objPtr->shader.fragmentShader += "\tfloat bias = 0.05;\n";
-                objPtr->shader.fragmentShader += "\treturn currentDepth - bias > closestDepth ? 1.0 : 0.0;\n";
+//                objPtr->shader.fragmentShader += "\tif (lights[lightIndex].lightType == 1) bias = 0.05;\n";
+//                for (int i = 0; i < shadowFboPtrs.size(); i++)
+//                    objPtr->shader.fragmentShader += "\tif (lightIndex == " + to_string(i) + ") closestDepth = texture(shadowDepthMap" + to_string(i) + ", fragToLight).r;\n";
+//                objPtr->shader.fragmentShader += "\tclosestDepth *= farPlane;\n";
+//                objPtr->shader.fragmentShader += "\treturn currentDepth - bias > closestDepth ? 1.0 : 0.0;\n";
+                objPtr->shader.fragmentShader += "\tfloat shadow = 0.0;\n";
+                objPtr->shader.fragmentShader += "\tint samples = 20;\n";
+                objPtr->shader.fragmentShader += "\tfloat viewDistance = length(cameraPos - FragPos);\n";
+                objPtr->shader.fragmentShader += "\tfloat diskRadius = (1.0 + (viewDistance / farPlane)) / 25.0;\n";
+                objPtr->shader.fragmentShader += "\tfor(int i = 0; i < samples; ++i) {\n";
+                for (int i = 0; i < shadowFboPtrs.size(); i++) {
+                    if (shadowFboPtrs[i]->light.lightType == LightType::point || shadowFboPtrs[i]->light.lightType == LightType::spotlight)
+                        objPtr->shader.fragmentShader += "\t\tif (lightIndex == " + to_string(i) + ") closestDepth = texture(shadowDepthMap" + to_string(i) + ", fragToLight + gridSamplingDisk[i] * diskRadius).r;\n";
+                    else if (shadowFboPtrs[i]->light.lightType == LightType::directional)
+                        objPtr->shader.fragmentShader += "\t\tif (lightIndex == " + to_string(i) + ") closestDepth = texture(shadowDepthMap" + to_string(i) + ", fragToLight.xy + gridSamplingDisk[i].xy * diskRadius).r;\n";
+                }
+                objPtr->shader.fragmentShader += "\t\tclosestDepth *= farPlane;\n";
+                objPtr->shader.fragmentShader += "\t\tif(currentDepth - bias > closestDepth) shadow += 1.0;\n";
+                objPtr->shader.fragmentShader += "\t}\n";
+                objPtr->shader.fragmentShader += "\treturn shadow / float(samples);\n";
             }
         }
         else if (objPtr->type == ObjectType::Light) {
@@ -987,25 +1140,31 @@ void setShaders(Object* objPtr)
         objPtr->shader.fragmentShader += "}\0";
         
         if (objPtr->type == ObjectType::Framebuffer && objPtr->style.fboType == FboType::shadow) {
-            objPtr->shader.geometryShader = "#version 330 core\n";
-            objPtr->shader.geometryShader += "layout(triangles) in;\n";
-            objPtr->shader.geometryShader += "layout(triangle_strip, max_vertices=18) out;\n";
-            objPtr->shader.geometryShader += "in VS_OUT { vec2 TexCoord; } gs_in[];\n";
-            objPtr->shader.geometryShader += "uniform mat4 shadowTransforms[6];\n";
-            objPtr->shader.geometryShader += "out vec4 FragPos;\n";
-            objPtr->shader.geometryShader += "out vec2 TexCoord;\n";
-            objPtr->shader.geometryShader += "void main() {\n";
-            objPtr->shader.geometryShader += "\tfor(int face = 0; face < 6; ++face) {\n";
-            objPtr->shader.geometryShader += "\t\tgl_Layer = face;\n";
-            objPtr->shader.geometryShader += "\t\tfor(int i = 0; i < 3; ++i) {\n";
-            objPtr->shader.geometryShader += "\t\t\tFragPos = gl_in[i].gl_Position;\n";
-            objPtr->shader.geometryShader += "\t\t\tTexCoord = gs_in[i].TexCoord;\n";
-            objPtr->shader.geometryShader += "\t\t\tgl_Position = shadowTransforms[face] * FragPos;\n";
-            objPtr->shader.geometryShader += "\t\t\tEmitVertex();\n";
-            objPtr->shader.geometryShader += "\t\t}\n";
-            objPtr->shader.geometryShader += "\t\tEndPrimitive();\n";
-            objPtr->shader.geometryShader += "\t}\n";
-            objPtr->shader.geometryShader += "}\0";
+            if (objPtr->light.lightType != LightType::directional) {
+                objPtr->shader.geometryShader = "#version 330 core\n";
+                objPtr->shader.geometryShader += "layout(triangles) in;\n";
+                objPtr->shader.geometryShader += "layout(triangle_strip, max_vertices=18) out;\n";
+                objPtr->shader.geometryShader += "in VS_OUT { vec2 TexCoord; float TexOrder; float TexQty; } gs_in[];\n";
+                objPtr->shader.geometryShader += "uniform mat4 shadowTransforms[6];\n";
+                objPtr->shader.geometryShader += "out vec4 FragPos;\n";
+                objPtr->shader.geometryShader += "out vec2 TexCoord;\n";
+                objPtr->shader.geometryShader += "out float TexOrder;\n";
+                objPtr->shader.geometryShader += "out float TexQty;\n";
+                objPtr->shader.geometryShader += "void main() {\n";
+                objPtr->shader.geometryShader += "\tfor(int face = 0; face < 6; ++face) {\n";
+                objPtr->shader.geometryShader += "\t\tgl_Layer = face;\n";
+                objPtr->shader.geometryShader += "\t\tfor(int i = 0; i < 3; ++i) {\n";
+                objPtr->shader.geometryShader += "\t\t\tFragPos = gl_in[i].gl_Position;\n";
+                objPtr->shader.geometryShader += "\t\t\tTexCoord = gs_in[i].TexCoord;\n";
+                objPtr->shader.geometryShader += "\t\t\tTexOrder = gs_in[i].TexOrder;\n";
+                objPtr->shader.geometryShader += "\t\t\tTexQty = gs_in[i].TexQty;\n";
+                objPtr->shader.geometryShader += "\t\t\tgl_Position = shadowTransforms[face] * FragPos;\n";
+                objPtr->shader.geometryShader += "\t\t\tEmitVertex();\n";
+                objPtr->shader.geometryShader += "\t\t}\n";
+                objPtr->shader.geometryShader += "\t\tEndPrimitive();\n";
+                objPtr->shader.geometryShader += "\t}\n";
+                objPtr->shader.geometryShader += "}\0";
+            }
         }
         
         
@@ -1059,7 +1218,7 @@ void setShaders(Object* objPtr)
             glDeleteShader(geometryShader);
     }
     
-//    if (objPtr->name == "shadowfbo") {
+//    if (objPtr->name == "jo1") {
 //        cout << objPtr->shader.vertexShader << endl;
 //        cout << objPtr->shader.geometryShader << endl;
 //        cout << objPtr->shader.fragmentShader << endl;
@@ -1096,15 +1255,23 @@ void setBuffers(Object* objPtr)
             objPtr->objectPtr->material.textures.push_back(*new unsigned int());
             glGenTextures(1, &objPtr->material.textures[0]);
             GLenum textype = objPtr->style.fboType == FboType::shadow ? GL_TEXTURE_CUBE_MAP : (multiSampling ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D);
+            textype = objPtr->style.fboType == FboType::shadow && objPtr->light.lightType == LightType::directional ? GL_TEXTURE_2D : textype;
             glBindTexture(textype, objPtr->material.textures[0]);
             if (objPtr->style.fboType == FboType::shadow) {
-                for (unsigned int i = 0; i < 6; ++i)
-                    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_DEPTH_COMPONENT, objPtr->layout.width, objPtr->layout.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+                if (objPtr->light.lightType == LightType::point || objPtr->light.lightType == LightType::spotlight) {
+                    for (unsigned int i = 0; i < 6; ++i)
+                        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_DEPTH_COMPONENT, objPtr->layout.width, objPtr->layout.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+                    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+                }
+                else if (objPtr->light.lightType == LightType::directional) {
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, objPtr->layout.width, objPtr->layout.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+                }
                 glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
                 glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, objPtr->material.textures[0], 0);
                 glDrawBuffer(GL_NONE);
                 glReadBuffer(GL_NONE);
@@ -1169,10 +1336,13 @@ void setBuffers(Object* objPtr)
                                            objPtr->superObject->shader.vertices.end() - 3,
                                            objPtr->superObject->shader.vertices.end());
         if (objPtr->type != ObjectType::Text && objPtr->type != ObjectType::Cubemap) {
-            int attrCount = objPtr->material.texture ? (objPtr->material.normMapIndexes.size() > 0 ? 16 : 10) : 6;
+            int attrCount = objPtr->material.texture ? (objPtr->material.normMapIndexes.size() > 0 ? 13 : 10) : 6;
+            if (objPtr->type == ObjectType::Joint || objPtr->type == ObjectType::Light)
+                attrCount = 3;
             glBufferData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() / 3 * attrCount * sizeof(float), NULL, GL_DYNAMIC_DRAW);
             glBufferSubData(GL_ARRAY_BUFFER, 0, objPtr->shader.vertices.size() * sizeof(float), &objPtr->shader.vertices[0]);
-            glBufferSubData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * sizeof(float), objPtr->shader.normals.size() * sizeof(float), &objPtr->shader.normals[0]);
+            if (objPtr->type == ObjectType::Model)
+                glBufferSubData(GL_ARRAY_BUFFER, objPtr->shader.vertices.size() * sizeof(float), objPtr->shader.normals.size() * sizeof(float), &objPtr->shader.normals[0]);
             if (objPtr->material.texture) {
                 glBufferSubData(GL_ARRAY_BUFFER, (objPtr->shader.vertices.size() + objPtr->shader.normals.size()) * sizeof(float), objPtr->shader.texCoords.size() * sizeof(float), &objPtr->shader.texCoords[0]);
                 if (objPtr->shader.texOrders.size() == 0)
@@ -1191,10 +1361,9 @@ void setBuffers(Object* objPtr)
                 glBufferSubData(GL_ARRAY_BUFFER, (objPtr->shader.vertices.size() + objPtr->shader.normals.size() + objPtr->shader.texCoords.size() + objPtr->shader.texOrders.size()) * sizeof(float), objPtr->shader.texQuantities.size() * sizeof(float), &objPtr->shader.texQuantities[0]);
                 
                 if (objPtr->material.normMapIndexes.size() > 0) {
-                    if (objPtr->shader.tangents.size() == 0 || objPtr->shader.bitangents.size() == 0)
-                        calculateTangentsBitangents(objPtr);
+                    if (objPtr->shader.tangents.size() == 0)
+                        calculateTangents(objPtr);
                     glBufferSubData(GL_ARRAY_BUFFER, (objPtr->shader.vertices.size() + objPtr->shader.normals.size() + objPtr->shader.texCoords.size() + objPtr->shader.texOrders.size() + objPtr->shader.texQuantities.size()) * sizeof(float), objPtr->shader.tangents.size() * sizeof(float), &objPtr->shader.tangents[0]);
-                    glBufferSubData(GL_ARRAY_BUFFER, (objPtr->shader.vertices.size() + objPtr->shader.normals.size() + objPtr->shader.texCoords.size() + objPtr->shader.texOrders.size() + objPtr->shader.texQuantities.size() + objPtr->shader.tangents.size()) * sizeof(float), objPtr->shader.bitangents.size() * sizeof(float), &objPtr->shader.bitangents[0]);
                 }
             }
             
@@ -1214,24 +1383,29 @@ void setBuffers(Object* objPtr)
                     glm::mat4 insmatrix, insrotmatrix;
                     glm::vec3 translate, scale, front, up, left;
                     translate = (objPtr->instance.translate.size() > 3) ? glm::vec3(objPtr->instance.translate[i * 3], objPtr->instance.translate[i * 3 + 1], objPtr->instance.translate[i * 3 + 2]) : (objPtr->instance.translate.size() == 3 ? glm::vec3(objPtr->instance.translate[0], objPtr->instance.translate[1], objPtr->instance.translate[2]) : glm::vec3(0.0f));
-                    scale = (objPtr->instance.scale.size() > 3) ? glm::vec3(objPtr->instance.scale[i * 3], objPtr->instance.scale[i * 3 + 1], objPtr->instance.scale[i * 3 + 2]) : (objPtr->instance.scale.size() == 3 ? glm::vec3(objPtr->instance.scale[0], objPtr->instance.scale[1], objPtr->instance.scale[2]) : glm::vec3(1.0, 1.0, 1.0));
-                    front = (objPtr->instance.front.size() > 3) ? glm::vec3(objPtr->instance.front[i * 3], objPtr->instance.front[i * 3 + 1], objPtr->instance.front[i * 3 + 2]) : (objPtr->instance.front.size() == 3 ? glm::vec3(objPtr->instance.front[0], objPtr->instance.front[1], objPtr->instance.front[2]) : glm::vec3(0.0, 0.0, 1.0));
-                    up = (objPtr->instance.up.size() > 3) ? glm::vec3(objPtr->instance.up[i * 3], objPtr->instance.up[i * 3 + 1], objPtr->instance.up[i * 3 + 2]) : (objPtr->instance.up.size() == 3 ? glm::vec3(objPtr->instance.up[0], objPtr->instance.up[1], objPtr->instance.up[2]) : glm::vec3(0.0, 1.0, 0.0));
-                    left = (objPtr->instance.left.size() > 3) ? glm::vec3(objPtr->instance.left[i * 3], objPtr->instance.left[i * 3 + 1], objPtr->instance.left[i * 3 + 2]) : (objPtr->instance.left.size() == 3 ? glm::vec3(objPtr->instance.left[0], objPtr->instance.left[1], objPtr->instance.left[2]) : glm::vec3(1.0, 0.0, 0.0));
+                    scale = (objPtr->instance.scale.size() > 3) ? glm::vec3(objPtr->instance.scale[i * 3], objPtr->instance.scale[i * 3 + 1], objPtr->instance.scale[i * 3 + 2]) : (objPtr->instance.scale.size() == 3 ? glm::vec3(objPtr->instance.scale[0], objPtr->instance.scale[1], objPtr->instance.scale[2]) : glm::vec3(1.0f));
+                    front = (objPtr->instance.front.size() > 3) ? glm::vec3(objPtr->instance.front[i * 3], objPtr->instance.front[i * 3 + 1], objPtr->instance.front[i * 3 + 2]) : (objPtr->instance.front.size() == 3 ? glm::vec3(objPtr->instance.front[0], objPtr->instance.front[1], objPtr->instance.front[2]) : glm::vec3(0.0f, 0.0f, 1.0f));
+                    up = (objPtr->instance.up.size() > 3) ? glm::vec3(objPtr->instance.up[i * 3], objPtr->instance.up[i * 3 + 1], objPtr->instance.up[i * 3 + 2]) : (objPtr->instance.up.size() == 3 ? glm::vec3(objPtr->instance.up[0], objPtr->instance.up[1], objPtr->instance.up[2]) : glm::vec3(0.0f, 1.0f, 0.0f));
+                    left = (objPtr->instance.left.size() > 3) ? glm::vec3(objPtr->instance.left[i * 3], objPtr->instance.left[i * 3 + 1], objPtr->instance.left[i * 3 + 2]) : (objPtr->instance.left.size() == 3 ? glm::vec3(objPtr->instance.left[0], objPtr->instance.left[1], objPtr->instance.left[2]) : glm::vec3(1.0f, 0.0f, 0.0f));
                     insmatrix = glm::translate(glm::mat4(1.0f), translate);
                     insmatrix = glm::scale(insmatrix, scale);
-                    insrotmatrix = glm::mat4(left.x,left.y, left.z, 0,
-                                            up.x, up.y, up.z, 0,
-                                            front.x, front.y, front.z, 0,
-                                            0, 0, 0, 1);
+                    insrotmatrix = glm::mat4(left.x,left.y, left.z, 0.0f,
+                                            up.x, up.y, up.z, 0.0f,
+                                            front.x, front.y, front.z, 0.0f,
+                                            0.0f, 0.0f, 0.0f, 1.0f);
                     insmatrix *= insrotmatrix;
                     objPtr->instance.instanceMatrices.push_back(insmatrix);
-                    objPtr->instance.instanceMatrices.push_back(insrotmatrix);
-                    
+                    if (objPtr->type != ObjectType::Joint)
+                        objPtr->instance.instanceMatrices.push_back(insrotmatrix);
                 }
+                glBindVertexArray(0);
                 glGenBuffers(1, &objPtr->shader.ibo);
                 glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.ibo);
-                glBufferData(GL_ARRAY_BUFFER, objPtr->shader.instanceCount * 2 * sizeof(glm::mat4), &objPtr->instance.instanceMatrices[0], GL_STATIC_DRAW);
+                if (objPtr->type == ObjectType::Model)
+                    glBufferData(GL_ARRAY_BUFFER, objPtr->shader.instanceCount * 2 * sizeof(glm::mat4), &objPtr->instance.instanceMatrices[0], GL_STATIC_DRAW);
+                else if (objPtr->type == ObjectType::Joint)
+                    glBufferData(GL_ARRAY_BUFFER, objPtr->shader.instanceCount * sizeof(glm::mat4), &objPtr->instance.instanceMatrices[0], GL_STATIC_DRAW);
+                glBindVertexArray(objPtr->shader.vao);
             }
         }
         else if (objPtr->type == ObjectType::Text) {
@@ -1270,7 +1444,7 @@ void setBuffers(Object* objPtr)
             if (objPtr->instance.instanced) {
                 glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.ibo);
                 glBindVertexArray(objPtr->shader.vao);
-                int attrCount = objPtr->material.texture ? ((objPtr->material.normMapIndexes.size() > 0) ? 7 : 5) : 2;
+                int attrCount = objPtr->material.texture ? ((objPtr->material.normMapIndexes.size() > 0) ? 6 : 5) : 2;
                 glVertexAttribPointer(attrCount, 4, GL_FLOAT, GL_FALSE, 32 * sizeof(float), (void*)0);
                 glEnableVertexAttribArray(attrCount);
                 glVertexAttribPointer(attrCount + 1, 4, GL_FLOAT, GL_FALSE, 32 * sizeof(float), (void*)(4 * sizeof(float)));
@@ -1320,13 +1494,13 @@ void setBuffers(Object* objPtr)
                         glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, data);
                     else if (channels == 3) {
                         if (gammaCorrection)
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
                         else
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
                     }
                     else if (channels == 4) {
                         if (gammaCorrection)
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
                         else
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
                     }
@@ -1345,7 +1519,8 @@ void setBuffers(Object* objPtr)
                     stbi_image_free(data);
                     
                     glUseProgram(objPtr->shader.shaderID);
-                    glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("textures[" + to_string(i) + "]").c_str()), i);
+//                    glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("textures[" + to_string(i) + "]").c_str()), i);
+                    glUniform1i(glGetUniformLocation(objPtr->shader.shaderID, ("texture" + to_string(i)).c_str()), i);
                     
                     itr = find(objPtr->material.specMapIndexes.begin(), objPtr->material.specMapIndexes.end(), i);
                     if (itr != objPtr->material.specMapIndexes.end())
@@ -1362,8 +1537,26 @@ void setBuffers(Object* objPtr)
             }
         }
         else if (objPtr->type == ObjectType::Light || objPtr->type == ObjectType::Joint) {
+            glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.vbo);
             glEnableVertexAttribArray(0);
             glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+            if (objPtr->type == ObjectType::Joint && objPtr->instance.instanced) {
+                glBindBuffer(GL_ARRAY_BUFFER, objPtr->shader.ibo);
+                glBindVertexArray(objPtr->shader.vao);
+                glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 16 * sizeof(float), (void*)0);
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 16 * sizeof(float), (void*)(4 * sizeof(float)));
+                glEnableVertexAttribArray(2);
+                glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 16 * sizeof(float), (void*)(8 * sizeof(float)));
+                glEnableVertexAttribArray(3);
+                glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, 16 * sizeof(float), (void*)(12 * sizeof(float)));
+                glEnableVertexAttribArray(4);
+
+                glVertexAttribDivisor(1, 1);
+                glVertexAttribDivisor(2, 1);
+                glVertexAttribDivisor(3, 1);
+                glVertexAttribDivisor(4, 1);
+            }
             glBindVertexArray(0);
             glBindBuffer(GL_ARRAY_BUFFER, 0);
         }
@@ -1479,6 +1672,7 @@ void drawScene(Object* objPtr)
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].material.ambient").c_str()), 1, value_ptr(it->objectPtr->material.ambient));
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].material.diffuse").c_str()), 1, value_ptr(it->objectPtr->material.diffuse));
                 glUniform3fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].material.specular").c_str()), 1, value_ptr(it->objectPtr->material.specular));
+                glUniformMatrix4fv(glGetUniformLocation(objPtr->shader.shaderID, ("lights[" + to_string(index) + "].lightSpace").c_str()), 1, GL_FALSE, value_ptr(it->objectPtr->light.lightSpace));
                 it++;
             }
             
@@ -1502,8 +1696,17 @@ void drawScene(Object* objPtr)
         glBindVertexArray(objPtr->shader.vao);
         
         if (objPtr->type == ObjectType::Joint) {
-            glDrawArrays(GL_LINES, 0, objPtr->shader.vertexCount);
-            glDrawArrays(GL_POINTS, 0, 1);
+            if (objPtr->shader.vertexCount > 1 && showJoints) {
+                if (objPtr->instance.instanced) {
+                    glDrawArraysInstanced(GL_LINES, 0, objPtr->shader.vertexCount, objPtr->shader.instanceCount);
+                    glDrawArraysInstanced(GL_POINTS, 0, 1, objPtr->shader.instanceCount);
+                }
+                else {
+                    glDrawArrays(GL_LINES, 0, objPtr->shader.vertexCount);
+//                    glDrawArrays(GL_POINTS, 0, 1);
+                    glDrawArrays(GL_POINTS, 0, 2);
+                }
+            }
         }
         else if (objPtr->type == ObjectType::Text) {
             float xbychar = objPtr->layout.x;
@@ -1582,9 +1785,19 @@ void drawShadows(Object* objPtr, Object* shadowPtr, bool hidden)
                           0, 0, 0, 1);
         model *= rotation;
         glUniformMatrix4fv(glGetUniformLocation(shadowPtr->shader.shaderID, "model"), 1, GL_FALSE,  value_ptr(model));
-        glUniform1i(glGetUniformLocation(shadowPtr->shader.shaderID, "textures[0]"), 0);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[0]);
+        if (objPtr->material.texture) {
+            for (int i = 0; i < objPtr->material.textures.size(); i++) {
+                glUniform1i(glGetUniformLocation(shadowPtr->shader.shaderID, ("textures[" + to_string(i) + "]").c_str()), i);
+                vector<int>::iterator itr = find(objPtr->material.specMapIndexes.begin(), objPtr->material.specMapIndexes.end(), i);
+                if (itr != objPtr->material.specMapIndexes.end())
+                    glUniform1i(glGetUniformLocation(shadowPtr->shader.shaderID, ("specMapIndexes[" + to_string(itr - objPtr->material.specMapIndexes.begin()) + "]").c_str()), i);
+                itr = find(objPtr->material.normMapIndexes.begin(), objPtr->material.normMapIndexes.end(), i);
+                if (itr != objPtr->material.normMapIndexes.end())
+                    glUniform1i(glGetUniformLocation(shadowPtr->shader.shaderID, ("normMapIndexes[" + to_string(itr - objPtr->material.normMapIndexes.begin()) + "]").c_str()), i);
+                glActiveTexture(GL_TEXTURE0 + i);
+                glBindTexture(GL_TEXTURE_2D, objPtr->material.textures[i]);
+            }
+        }
         int vertexCount = hidden ? 0 : objPtr->shader.vertexCount;
         glBindVertexArray(objPtr->shader.vao);
         if (objPtr->shader.faces.size() > 0) {
@@ -1613,6 +1826,147 @@ void drawShadows(Object* objPtr, Object* shadowPtr, bool hidden)
         drawShadows(objPtr->subObjects[i], shadowPtr, hidden);
 }
 
+void processAnimationFrames()
+{
+    if (animStart < 0.0) {
+        if (!animReset) {
+            for (int i = 0; i < animationPtrs.size(); i++) {
+                Animation* animPtr = animationPtrs[i];
+                stringstream ss(animPtr->objPtr);
+                void* blankPtr;
+                ss >> blankPtr;
+                Object* objPtr = reinterpret_cast<Object*>(blankPtr);
+                if (animPtr->animAttr == "trns")
+                    objPtr->transform.position = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
+                else if (animPtr->animAttr == "scal")
+                    objPtr->transform.scale = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
+                else if (animPtr->animAttr == "fron")
+                    objPtr->transform.front = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
+                else if (animPtr->animAttr == "left")
+                    objPtr->transform.left = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
+                else if (animPtr->animAttr == "up")
+                    objPtr->transform.up = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
+                else if (animPtr->animAttr == "degr")
+                    rotateJoint(objPtr->name, glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]) - objPtr->bone.rotationDegrees);
+                else if (animPtr->animAttr == "offs")
+                    locateJoint(objPtr->name, glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]) - objPtr->bone.locationOffset);
+                else if (animPtr->animAttr == "fov")
+                    objPtr->camera.fov = animPtr->initValue[0];
+                
+                animPtr->initValue.clear();
+            }
+            animReset = true;
+        }
+        return;
+    }
+    animReset = false;
+    for (int i = 0; i < animationPtrs.size(); i++) {
+        float currentTime = glfwGetTime() - animStart;
+        Animation* animPtr = animationPtrs[i];
+        stringstream ss(animPtr->objPtr);
+        void* blankPtr;
+        ss >> blankPtr;
+        Object* objPtr = reinterpret_cast<Object*>(blankPtr);
+        if (animPtr->animAttr == "trns" || animPtr->animAttr == "scal" || animPtr->animAttr == "fron" || animPtr->animAttr == "up" || animPtr->animAttr == "left" || animPtr->animAttr == "degr" || animPtr->animAttr == "offs") {
+            for (int j = 0; j < animPtr->timestamps.size(); j++) {
+                if (j == animPtr->timestamps.size() - 1) {
+                    if (currentTime >= animPtr->timestamps[j]) {
+                        if (animPtr->animAttr == "trns") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.position.x, objPtr->transform.position.y, objPtr->transform.position.z};
+                            objPtr->transform.position = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                        }
+                        else if (animPtr->animAttr == "scal") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.scale.x, objPtr->transform.scale.y, objPtr->transform.scale.z};
+                            objPtr->transform.scale = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                        }
+                        else if (animPtr->animAttr == "fron") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.front.x, objPtr->transform.front.y, objPtr->transform.front.z};
+                            objPtr->transform.front = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                        }
+                        else if (animPtr->animAttr == "up") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.up.x, objPtr->transform.up.y, objPtr->transform.up.z};
+                            objPtr->transform.up = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                        }
+                        else if (animPtr->animAttr == "left") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.left.x, objPtr->transform.left.y, objPtr->transform.left.z};
+                            objPtr->transform.left = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                        }
+                        else if (animPtr->animAttr == "degr") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.rotationDegrees.x, objPtr->bone.rotationDegrees.y, objPtr->bone.rotationDegrees.z};
+                            rotateJoint(objPtr->name, glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]) - objPtr->bone.rotationDegrees);
+                        }
+                        else if (animPtr->animAttr == "offs") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.locationOffset.x, objPtr->bone.locationOffset.y, objPtr->bone.locationOffset.z};
+                            locateJoint(objPtr->name, glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]) - objPtr->bone.locationOffset);
+                        }
+                    }
+                }
+                else {
+                    if (currentTime >= animPtr->timestamps[j] && currentTime < animPtr->timestamps[j + 1]) {
+                        glm::vec3 prevValue = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                        glm::vec3 nextValue = glm::vec3(animPtr->values[(j + 1) * 3], animPtr->values[(j + 1) * 3 + 1], animPtr->values[(j + 1) * 3 + 2]);
+                        float diffTime = animPtr->timestamps[j + 1] - animPtr->timestamps[j];
+                        glm::vec3 diffValue = nextValue - prevValue;
+                        float timeOfst = currentTime - animPtr->timestamps[j];
+                        glm::vec3 valueOfst = diffValue * (timeOfst / diffTime);
+                        objPtr->transform.position = prevValue + valueOfst;
+                        if (animPtr->animAttr == "trns") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.position.x, objPtr->transform.position.y, objPtr->transform.position.z};
+                            objPtr->transform.position = prevValue + valueOfst;
+                        }
+                        else if (animPtr->animAttr == "scal") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.scale.x, objPtr->transform.scale.y, objPtr->transform.scale.z};
+                            objPtr->transform.scale = prevValue + valueOfst;
+                        }
+                        else if (animPtr->animAttr == "fron") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.front.x, objPtr->transform.front.y, objPtr->transform.front.z};
+                            objPtr->transform.front = prevValue + valueOfst;
+                        }
+                        else if (animPtr->animAttr == "up") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.up.x, objPtr->transform.up.y, objPtr->transform.up.z};
+                            objPtr->transform.up = prevValue + valueOfst;
+                        }
+                        else if (animPtr->animAttr == "left") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.left.x, objPtr->transform.left.y, objPtr->transform.left.z};
+                            objPtr->transform.left = prevValue + valueOfst;
+                        }
+                        else if (animPtr->animAttr == "degr") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.rotationDegrees.x, objPtr->bone.rotationDegrees.y, objPtr->bone.rotationDegrees.z};
+                            rotateJoint(objPtr->name, prevValue + valueOfst - objPtr->bone.rotationDegrees);
+                        }
+                        else if (animPtr->animAttr == "offs") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.locationOffset.x, objPtr->bone.locationOffset.y, objPtr->bone.locationOffset.z};
+                            locateJoint(objPtr->name, prevValue + valueOfst - objPtr->bone.locationOffset);
+                        }
+                    }
+                }
+            }
+        }
+        else if (animPtr->animAttr == "fov") {
+            for (int j = 0; j < animPtr->timestamps.size(); j++) {
+                if (j == animPtr->timestamps.size() - 1) {
+                    if (currentTime >= animPtr->timestamps[j]) {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->camera.fov};
+                        objPtr->camera.fov = animPtr->values[j];
+                    }
+                }
+                else {
+                    if (currentTime >= animPtr->timestamps[j] && currentTime < animPtr->timestamps[j + 1]) {
+                        float prevValue = animPtr->values[j];
+                        float nextValue = animPtr->values[j + 1];
+                        float diffTime = animPtr->timestamps[j + 1] - animPtr->timestamps[j];
+                        float diffValue = nextValue - prevValue;
+                        float timeOfst = currentTime - animPtr->timestamps[j];
+                        float valueOfst = diffValue * (timeOfst / diffTime);
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->camera.fov};
+                        objPtr->camera.fov = prevValue + valueOfst;
+                    }
+                }
+            }
+        }
+    }
+}
+
 void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
@@ -1627,6 +1981,12 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
         commandKeySticked = false;
     }
     
+    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+        if (animStart < 0.0)
+            animStart = glfwGetTime();
+        else
+            animStart = -1;
+    }
     
     
     if (key == GLFW_KEY_V && action == GLFW_PRESS) {
@@ -1663,6 +2023,9 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
     
     
     if (key == GLFW_KEY_0 && action == GLFW_PRESS) {
+        if (commandKeySticked)
+            showJoints = !showJoints;
+        
 //        resetPose("hips");
 //
 //        shading = shading == "blinn-phong" ? "phong" : "blinn-phong";
@@ -1688,8 +2051,10 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
 //        glUseProgram(it->shader.shaderID);
 //        glUniform1i(glGetUniformLocation(it->shader.shaderID, "shadows"), false);
         
-        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
-        cout << "pos: " << it->objectPtr->transform.position.x << " " << it->objectPtr->transform.position.y << " " << it->objectPtr->transform.position.z << endl;
+//        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+//        cout << "pos: " << it->objectPtr->transform.position.x << " " << it->objectPtr->transform.position.y << " " << it->objectPtr->transform.position.z << endl;
+        
+//        manipulateHuman();
     }
     
     
@@ -1793,7 +2158,7 @@ void processContinuousInput(GLFWwindow* window)
     
     
     function<void(Object*, float)> translation = [&translation](Object* obj, float offset) {
-        obj->objectPtr->transform.position += glm::vec3(0.0, 0.0, offset);
+        obj->objectPtr->transform.position += glm::vec3(offset, 0.0, 0.0);
         for (int i = 0; i < obj->subObjects.size(); i++)
             translation(obj->subObjects[i], offset);
     };
@@ -1804,67 +2169,75 @@ void processContinuousInput(GLFWwindow* window)
             rotation(obj->subObjects[i], angle);
     };
     if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
-        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "human"; });
-        rotation(it->objectPtr, 1.0f);
-        translation(it->objectPtr, 0.01f);
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+//        rotation(it->objectPtr, 1.0f);
+//        translation(it->objectPtr, 0.01f);
 //        locateJoint("head", glm::vec3(0.01, 0.0, 0.0));
+        it->objectPtr->light.cutOff += 0.01f;
+//        it->objectPtr->light.outerCutOff += 0.01f;
+        
     }
     if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
-        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "human"; });
-        rotation(it->objectPtr, -1.0f);
-        translation(it->objectPtr, -0.01f);
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+//        rotation(it->objectPtr, -1.0f);
+//        translation(it->objectPtr, -0.01f);
 //        locateJoint("head", glm::vec3(-0.01, 0.0, 0.0));
+        it->objectPtr->light.cutOff -= 0.01f;
+//        it->objectPtr->light.outerCutOff -= 0.01f;
     }
 
     
     
     if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) {
-//        float angle = 0.5f;
-//        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
-//            angle *= -1.0;
+        float angle = 0.5f;
+        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
+            angle *= -1.0;
 //        rotateJoint("leftshoulder", glm::vec3(angle, 0.0, 0.0));
+        rotateJoint("j1", glm::vec3(angle, 0.0, 0.0));
 //        float offset = 0.01f;
 //        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
 //            offset *= -1.0;
 //        locateJoint("leftarm", glm::vec3(offset, 0.0, 0.0));
-        string lightname = commandKeySticked ? "light3" : "light2";
-        float offset = 0.01f;
-        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
-            offset *= -1.0;
-        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
-        it->objectPtr->transform.position += glm::vec3(offset, 0, 0);
+//        string lightname = commandKeySticked ? "light1" : "light2";
+//        float offset = 0.01f;
+//        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
+//            offset *= -1.0;
+//        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
+//        it->objectPtr->transform.position += glm::vec3(offset, 0, 0);
     }
     if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS) {
-//        float angle = 0.5f;
-//        if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
-//            angle *= -1.0;
+        float angle = 0.5f;
+        if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
+            angle *= -1.0;
 //        rotateJoint("leftshoulder", glm::vec3(0.0, angle, 0.0));
+        rotateJoint("j1", glm::vec3(0.0, angle, 0.0));
 //        float offset = 0.01f;
 //        if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
 //            offset *= -1.0;
 //        locateJoint("leftarm", glm::vec3(0.0, offset, 0.0));
-        string lightname = commandKeySticked ? "light3" : "light2";
-        float offset = 0.01f;
-        if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
-            offset *= -1.0;
-        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
-        it->objectPtr->transform.position += glm::vec3(0, offset, 0);
+//        string lightname = commandKeySticked ? "light1" : "light2";
+//        float offset = 0.01f;
+//        if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
+//            offset *= -1.0;
+//        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
+//        it->objectPtr->transform.position += glm::vec3(0, offset, 0);
     }
     if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS) {
-//        float angle = 0.5f;
-//        if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
-//            angle *= -1.0;
+        float angle = 0.5f;
+        if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
+            angle *= -1.0;
 //        rotateJoint("leftshoulder", glm::vec3(0.0, 0.0, angle));
+        rotateJoint("j1", glm::vec3(0.0, 0.0, angle));
 //        float offset = 0.01f;
 //        if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
 //            offset *= -1.0;
 //        locateJoint("leftarm", glm::vec3(0.0, 0.0, offset));
-        string lightname = commandKeySticked ? "light3" : "light2";
-        float offset = 0.01f;
-        if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
-            offset *= -1.0;
-        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
-        it->objectPtr->transform.position += glm::vec3(0, 0, offset);
+//        string lightname = commandKeySticked ? "light1" : "light2";
+//        float offset = 0.01f;
+//        if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
+//            offset *= -1.0;
+//        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [lightname](Object obj) { return obj.name == lightname; });
+//        it->objectPtr->transform.position += glm::vec3(0, 0, offset);
     }
     
     
@@ -1875,6 +2248,8 @@ void processContinuousInput(GLFWwindow* window)
 //        locateJoint("head", glm::vec3(offset, 0.0, 0.0));
         vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
         it->objectPtr->transform.position += glm::vec3(offset, 0, 0);
+//        it->objectPtr->transform.left = rotateVectorAroundAxis(it->objectPtr->transform.left, it->objectPtr->transform.up, offset * 100.0);
+//        it->objectPtr->transform.front = rotateVectorAroundAxis(it->objectPtr->transform.front, it->objectPtr->transform.up, offset * 100.0);
     }
     if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) {
         float offset = 0.01f;
@@ -1883,6 +2258,8 @@ void processContinuousInput(GLFWwindow* window)
 //        locateJoint("head", glm::vec3(0.0, offset, 0.0));
         vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
         it->objectPtr->transform.position += glm::vec3(0, offset, 0);
+//        it->objectPtr->transform.left = rotateVectorAroundAxis(it->objectPtr->transform.left, it->objectPtr->transform.front, offset * 100.0);
+//        it->objectPtr->transform.up = rotateVectorAroundAxis(it->objectPtr->transform.up, it->objectPtr->transform.front, offset * 100.0);
     }
     if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_COMMA) == GLFW_PRESS) {
         float offset = 0.01f;
@@ -1891,6 +2268,8 @@ void processContinuousInput(GLFWwindow* window)
 //        locateJoint("head", glm::vec3(0.0, 0.0, offset));
         vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
         it->objectPtr->transform.position += glm::vec3(0, 0, offset);
+//        it->objectPtr->transform.up = rotateVectorAroundAxis(it->objectPtr->transform.up, it->objectPtr->transform.left, offset * 100.0);
+//        it->objectPtr->transform.front = rotateVectorAroundAxis(it->objectPtr->transform.front, it->objectPtr->transform.left, offset * 100.0);
     }
 }
 
@@ -2232,12 +2611,11 @@ void resetPose(string joint)
     lambdaFunc(it->objectPtr);
 }
 
-void calculateTangentsBitangents(Object* objPtr)
+void calculateTangents(Object* objPtr)
 {
     map<int, glm::vec3> tangentMap;
-    map<int, glm::vec3> bitangentMap;
     for (int i = 0; i < objPtr->shader.faces.size() / 3; i++) {
-        glm::vec3 tan, bitan;
+        glm::vec3 tan;
         
         glm::vec3 v1 = glm::vec3(objPtr->shader.vertices[objPtr->shader.faces[i * 3] * 3], objPtr->shader.vertices[objPtr->shader.faces[i * 3] * 3 + 1], objPtr->shader.vertices[objPtr->shader.faces[i * 3] * 3 + 2]);
         glm::vec3 v2 = glm::vec3(objPtr->shader.vertices[objPtr->shader.faces[i * 3 + 1] * 3], objPtr->shader.vertices[objPtr->shader.faces[i * 3 + 1] * 3 + 1], objPtr->shader.vertices[objPtr->shader.faces[i * 3 + 1] * 3 + 2]);
@@ -2255,26 +2633,173 @@ void calculateTangentsBitangents(Object* objPtr)
         tan.x = c * (deltat2.y * e1.x - deltat1.y * e2.x);
         tan.y = c * (deltat2.y * e1.y - deltat1.y * e2.y);
         tan.z = c * (deltat2.y * e1.z - deltat1.y * e2.z);
-
-        bitan.x = c * (-deltat2.x * e1.x + deltat1.x * e2.x);
-        bitan.y = c * (-deltat2.x * e1.y + deltat1.x * e2.y);
-        bitan.z = c * (-deltat2.x * e1.z + deltat1.x * e2.z);
         
         tangentMap.insert(pair<int, glm::vec3>(objPtr->shader.faces[i * 3], tan));
         tangentMap.insert(pair<int, glm::vec3>(objPtr->shader.faces[i * 3 + 1], tan));
         tangentMap.insert(pair<int, glm::vec3>(objPtr->shader.faces[i * 3 + 2], tan));
-        bitangentMap.insert(pair<int, glm::vec3>(objPtr->shader.faces[i * 3], bitan));
-        bitangentMap.insert(pair<int, glm::vec3>(objPtr->shader.faces[i * 3 + 1], bitan));
-        bitangentMap.insert(pair<int, glm::vec3>(objPtr->shader.faces[i * 3 + 2], bitan));
     }
     for (map<int, glm::vec3>::iterator it = tangentMap.begin(); it != tangentMap.end(); ++it) {
         objPtr->shader.tangents.push_back(it->second.x);
         objPtr->shader.tangents.push_back(it->second.y);
         objPtr->shader.tangents.push_back(it->second.z);
     }
-    for (map<int, glm::vec3>::iterator it = bitangentMap.begin(); it != bitangentMap.end(); ++it) {
-        objPtr->shader.bitangents.push_back(it->second.x);
-        objPtr->shader.bitangents.push_back(it->second.y);
-        objPtr->shader.bitangents.push_back(it->second.z);
-    }
 }
+
+void manipulateHuman()
+{
+    vector<Object>::iterator rootPtr = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.name == "human"; });
+    
+    function<glm::vec3(int vIndice)> findVertexPosition = [rootPtr](int vIndice) {
+        return glm::vec3(rootPtr->objectPtr->shader.vertices[vIndice * 3],
+                                  rootPtr->objectPtr->shader.vertices[vIndice * 3 + 1],
+                                  rootPtr->objectPtr->shader.vertices[vIndice * 3 + 2]);
+    };
+    
+    function<glm::vec3(int vIndice)> findVertexNormal = [rootPtr](int vIndice) {
+        return glm::vec3(rootPtr->objectPtr->shader.normals[vIndice * 3],
+                                  rootPtr->objectPtr->shader.normals[vIndice * 3 + 1],
+                                  rootPtr->objectPtr->shader.normals[vIndice * 3 + 2]);
+    };
+    
+    function<glm::vec3(int tIndice)> findTriangleVertices = [rootPtr](int tIndice) {
+        return glm::vec3(rootPtr->objectPtr->shader.faces[tIndice * 3],
+                                  rootPtr->objectPtr->shader.faces[tIndice * 3 + 1],
+                                  rootPtr->objectPtr->shader.faces[tIndice * 3 + 2]);
+    };
+    
+    function<vector<int>(int vIndice)> findTrianglesIncludesVertex = [rootPtr](int vIndice) {
+        vector<int> triangleIndices;
+        for (int i = 0; i < rootPtr->objectPtr->shader.faces.size(); i += 3) {
+            if (rootPtr->objectPtr->shader.faces[i] == vIndice ||
+                rootPtr->objectPtr->shader.faces[i + 1] == vIndice ||
+                rootPtr->objectPtr->shader.faces[i + 2] == vIndice) {
+                
+                int triInd = (int)i / 3;
+                triangleIndices.push_back(triInd);
+            }
+        }
+        return triangleIndices;
+    };
+    
+    map<int, glm::vec3> headVertices;
+    
+    
+    ifstream file(WORK_DIR + "head_vertices.txt");
+    string line;
+    if (file) {
+        file.seekg(0, file.end);
+        long length = file.tellg();
+        file.seekg(0, file.beg);
+        char* buffer = new char[length];
+        file.read(buffer, length);
+        file.close();
+        line = buffer;
+        delete[] buffer;
+    }
+    long backslashPos = 0;
+    string backslash = "\n";
+    while ((backslashPos = line.find(backslash)) != string::npos) {
+        string row = line.substr(0, backslashPos);
+        if (row != "") {
+            long commaPos = 0;
+            string comma = ",";
+            vector<float> values;
+            const regex floatRegex("[+-]?([0-9]*[.])?[0-9]+");
+            while((commaPos = row.find(comma)) != string::npos) {
+                if (regex_match(row.substr(0, commaPos), floatRegex))
+                    values.push_back(stof(row.substr(0, commaPos)));
+                row.erase(0, commaPos + comma.length());
+            }
+            if (regex_match(row, floatRegex))
+                headVertices.insert(pair<int, glm::vec3>(int(values[0]), glm::vec3(values[1], values[2], stof(row))));
+        }
+        line.erase(0, backslashPos + backslash.length());
+    }
+    
+    for (int i = 0; i < rootPtr->objectPtr->shader.vertices.size() / 3; i++) {
+        if (headVertices.find(i) == headVertices.end())
+            continue;
+        
+        glm::vec3 vrt = findVertexPosition(i);
+//        glm::vec3 offset = findVertexNormal(i) * 0.002f;
+        glm::vec3 offset = headVertices.at(i);
+
+        
+//        if (vrt.y < 1.54)
+//            continue;
+        
+//        headVertices.insert(pair<int, glm::vec3>(i, offset));
+        
+        vrt += offset;
+        rootPtr->objectPtr->shader.vertices[i * 3] = vrt.x;
+        rootPtr->objectPtr->shader.vertices[i * 3 + 1] = vrt.y;
+        rootPtr->objectPtr->shader.vertices[i * 3 + 2] = vrt.z;
+        
+        vector<int> triangleIndices = findTrianglesIncludesVertex(i);
+        vector<glm::vec3> newTriangleNormals;
+        vector<int> adjustedVertIndices;
+        for (int j = 0; j < triangleIndices.size(); j++) {
+            int triangleIndice = triangleIndices[j];
+            glm::vec3 tri = findTriangleVertices(triangleIndice);
+            glm::vec3 v1 = findVertexPosition((int)tri[0]);
+            glm::vec3 v2 = findVertexPosition((int)tri[1]);
+            glm::vec3 v3 = findVertexPosition((int)tri[2]);
+            glm::vec3 e1 = v1 - v2;
+            glm::vec3 e2 = v2 - v3;
+            
+            glm::vec3 newTriNormal = glm::normalize(glm::cross(e1, e2));
+            newTriangleNormals.push_back(newTriNormal);
+        }
+        
+        for (int j = 0; j < triangleIndices.size(); j++) {
+            int triangleIndice = triangleIndices[j];
+            glm::vec3 tri = findTriangleVertices(triangleIndice);
+            for (int h = 0; h < 3; h++) {
+                if (find(adjustedVertIndices.begin(), adjustedVertIndices.end(), tri[h]) != adjustedVertIndices.end())
+                    continue;
+                vector<int> triangleIndicesOfThis = findTrianglesIncludesVertex(tri[h]);
+                glm::vec3 cummulativeNormal = glm::vec3(0.0f);
+                for (int g = 0; g < triangleIndicesOfThis.size(); g++) {
+                    int triangleIndiceOfThis = triangleIndicesOfThis[g];
+                    vector<int>::iterator it = find(triangleIndices.begin(), triangleIndices.end(), triangleIndiceOfThis);
+                    if (it != triangleIndices.end()) {
+                        cummulativeNormal += newTriangleNormals[it - triangleIndices.begin()];
+                    }
+                    else {
+                        glm::vec3 neighborTriangle = findTriangleVertices(triangleIndiceOfThis);
+                        glm::vec3 v1 = findVertexPosition((int)neighborTriangle[0]);
+                        glm::vec3 v2 = findVertexPosition((int)neighborTriangle[1]);
+                        glm::vec3 v3 = findVertexPosition((int)neighborTriangle[2]);
+                        
+                        glm::vec3 e1 = v1 - v2;
+                        glm::vec3 e2 = v2 - v3;
+                        
+                        glm::vec3 oneOfTriNormalOfThis = glm::normalize(glm::cross(e1, e2));
+                        cummulativeNormal += oneOfTriNormalOfThis;
+                    }
+                }
+                        
+                cummulativeNormal /= (int)triangleIndicesOfThis.size();
+                
+                rootPtr->objectPtr->shader.normals[tri[h] * 3] = cummulativeNormal.x;
+                rootPtr->objectPtr->shader.normals[tri[h] * 3 + 1] = cummulativeNormal.y;
+                rootPtr->objectPtr->shader.normals[tri[h] * 3 + 2] = cummulativeNormal.z;
+                
+                adjustedVertIndices.push_back(tri[h]);
+            }
+        }
+    }
+    
+//    ofstream vertFile;
+//    string content = "";
+//    for (const auto &entry : headVertices)
+//        content += to_string(entry.first) + "," + to_string(entry.second.x) + "," + to_string(entry.second.y) + "," + to_string(entry.second.z) + "\n";
+//    vertFile.open("head_vertices.txt");
+//    vertFile << content;
+//    vertFile.close();
+    
+    glBindBuffer(GL_ARRAY_BUFFER, rootPtr->objectPtr->shader.vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, rootPtr->objectPtr->shader.vertices.size() * sizeof(float), &rootPtr->objectPtr->shader.vertices[0]);
+    glBufferSubData(GL_ARRAY_BUFFER, rootPtr->objectPtr->shader.vertices.size() * sizeof(float), rootPtr->objectPtr->shader.normals.size() * sizeof(float), &rootPtr->objectPtr->shader.normals[0]);
+}
+

@@ -7,12 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		106E0CB92725CB4C0089B75A /* main13.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 106E0CB82725CB4C0089B75A /* main13.cpp */; };
+		103DF67527D57870002B5716 /* main17.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 103DF67427D57870002B5716 /* main17.cpp */; };
+		103DF67827D57E7D002B5716 /* libfreetype.6.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 103DF67627D57E5C002B5716 /* libfreetype.6.dylib */; };
 		10F03C9F25EEE77200DD9640 /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03C9E25EEE77200DD9640 /* OpenGL.framework */; };
 		10F03CA125EEE77900DD9640 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA025EEE77900DD9640 /* Cocoa.framework */; };
 		10F03CA325EEE7F700DD9640 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA225EEE7F700DD9640 /* IOKit.framework */; };
 		10F03CA525EEE80000DD9640 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA425EEE80000DD9640 /* CoreVideo.framework */; };
-		10F03CAF25EEF0F500DD9640 /* libfreetype.6.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA825EEE84B00DD9640 /* libfreetype.6.dylib */; };
 		10F03CB025EEF0F500DD9640 /* libGLEW.2.1.0.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA725EEE84B00DD9640 /* libGLEW.2.1.0.dylib */; };
 		10F03CB125EEF0F500DD9640 /* libglfw.3.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA625EEE84B00DD9640 /* libglfw.3.3.dylib */; };
 /* End PBXBuildFile section */
@@ -30,7 +30,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		106E0CB82725CB4C0089B75A /* main13.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main13.cpp; sourceTree = "<group>"; };
+		103DF67427D57870002B5716 /* main17.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main17.cpp; sourceTree = "<group>"; };
+		103DF67627D57E5C002B5716 /* libfreetype.6.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfreetype.6.dylib; path = ../../../../../usr/local/Cellar/freetype/2.11.1/lib/libfreetype.6.dylib; sourceTree = "<group>"; };
 		10F03C9225EEE76300DD9640 /* OpenGLTest4 */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = OpenGLTest4; sourceTree = BUILT_PRODUCTS_DIR; };
 		10F03C9E25EEE77200DD9640 /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = System/Library/Frameworks/OpenGL.framework; sourceTree = SDKROOT; };
 		10F03CA025EEE77900DD9640 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
@@ -38,7 +39,6 @@
 		10F03CA425EEE80000DD9640 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
 		10F03CA625EEE84B00DD9640 /* libglfw.3.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libglfw.3.3.dylib; path = ../../../../../usr/local/Cellar/glfw/3.3.2/lib/libglfw.3.3.dylib; sourceTree = "<group>"; };
 		10F03CA725EEE84B00DD9640 /* libGLEW.2.1.0.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libGLEW.2.1.0.dylib; path = ../../../../../usr/local/Cellar/glew/2.1.0_1/lib/libGLEW.2.1.0.dylib; sourceTree = "<group>"; };
-		10F03CA825EEE84B00DD9640 /* libfreetype.6.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfreetype.6.dylib; path = ../../../../../usr/local/Cellar/freetype/2.10.4/lib/libfreetype.6.dylib; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,7 +46,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				10F03CAF25EEF0F500DD9640 /* libfreetype.6.dylib in Frameworks */,
+				103DF67827D57E7D002B5716 /* libfreetype.6.dylib in Frameworks */,
 				10F03CB025EEF0F500DD9640 /* libGLEW.2.1.0.dylib in Frameworks */,
 				10F03CB125EEF0F500DD9640 /* libglfw.3.3.dylib in Frameworks */,
 				10F03CA525EEE80000DD9640 /* CoreVideo.framework in Frameworks */,
@@ -79,7 +79,7 @@
 		10F03C9425EEE76300DD9640 /* OpenGLTest4 */ = {
 			isa = PBXGroup;
 			children = (
-				106E0CB82725CB4C0089B75A /* main13.cpp */,
+				103DF67427D57870002B5716 /* main17.cpp */,
 			);
 			path = OpenGLTest4;
 			sourceTree = "<group>";
@@ -87,7 +87,7 @@
 		10F03C9D25EEE77200DD9640 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				10F03CA825EEE84B00DD9640 /* libfreetype.6.dylib */,
+				103DF67627D57E5C002B5716 /* libfreetype.6.dylib */,
 				10F03CA725EEE84B00DD9640 /* libGLEW.2.1.0.dylib */,
 				10F03CA625EEE84B00DD9640 /* libglfw.3.3.dylib */,
 				10F03CA425EEE80000DD9640 /* CoreVideo.framework */,
@@ -154,7 +154,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				106E0CB92725CB4C0089B75A /* main13.cpp in Sources */,
+				103DF67527D57870002B5716 /* main17.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -258,6 +258,7 @@
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
@@ -278,12 +279,14 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_STYLE = Automatic;
+				GCC_DYNAMIC_NO_PIC = NO;
 				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/opengl-nscene/OpenGLTest4/include/**";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/usr/local/Cellar/glfw/3.3.2/lib,
 					/usr/local/Cellar/glew/2.1.0_1/lib,
 					/usr/local/Cellar/freetype/2.10.4/lib,
+					/usr/local/Cellar/freetype/2.11.1/lib,
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -295,12 +298,14 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_STYLE = Automatic;
+				GCC_DYNAMIC_NO_PIC = NO;
 				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/opengl-nscene/OpenGLTest4/include/**";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/usr/local/Cellar/glfw/3.3.2/lib,
 					/usr/local/Cellar/glew/2.1.0_1/lib,
 					/usr/local/Cellar/freetype/2.10.4/lib,
+					/usr/local/Cellar/freetype/2.11.1/lib,
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
