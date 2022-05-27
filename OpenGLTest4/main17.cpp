@@ -182,8 +182,9 @@ bool shadows = false;
 vector<Object*> shadowFboPtrs;
 float shadowFarPlane = 25.0;
 vector<Animation*> animationPtrs;
-float animStart = -1;
-bool animReset = true;
+bool animationLoop = true;
+float animationStart = -1;
+bool animationReset = true;
 unsigned int polygonMode = GL_FILL;
 bool commandKeySticked = false;
 
@@ -259,6 +260,8 @@ int main()
     glfwSetKeyCallback(window, processDiscreteInput);
     int windowHeight, windowWidth;
     glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
+    float WIDTH_FACTOR = scene->layout.width / windowWidth;
+    float HEIGHT_FACTOR = scene->layout.height / windowHeight;
     scene->layout.width = windowWidth;
     scene->layout.height = windowHeight;
 
@@ -281,8 +284,8 @@ int main()
                     obj->bone.rotationYAxis = glm::vec3(obj->transform.up);
                     obj->bone.rotationZAxis = glm::vec3(obj->transform.front);
                     
-                    obj->bone.rotationXAxis = rotateVectorAroundAxis(obj->bone.rotationXAxis, obj->bone.rotationYAxis, obj->bone.rollDegree * -1.0f);
-                    obj->bone.rotationZAxis = rotateVectorAroundAxis(obj->bone.rotationZAxis, obj->bone.rotationYAxis, obj->bone.rollDegree * -1.0f);
+                    obj->bone.rotationXAxis = rotateVectorAroundAxis(obj->bone.rotationXAxis, obj->bone.rotationYAxis, obj->bone.rollDegree);
+                    obj->bone.rotationZAxis = rotateVectorAroundAxis(obj->bone.rotationZAxis, obj->bone.rotationYAxis, obj->bone.rollDegree);
                     
                     obj->bone.referenceXAxis = glm::vec3(obj->bone.rotationXAxis);
                     obj->bone.referenceYAxis = glm::vec3(obj->bone.rotationYAxis);
@@ -376,15 +379,15 @@ int main()
     float lastFrame = 0.0f;
     while (!glfwWindowShouldClose(window))
     {
-        cout << "Frame " << elapsedFrameCount << endl;
-        cout << "Last Frame Time: " << lastFrame << endl;
+//        cout << "Frame " << elapsedFrameCount << endl;
+//        cout << "Last Frame Time: " << lastFrame << endl;
         elapsedFrameCount++;
         float currentFrame = glfwGetTime();
         float timeDelta = currentFrame - lastFrame;
         lastFrame = currentFrame;
         float fps = 1 / timeDelta;
-        cout << "Current Frame Time: " << currentFrame << endl;
-        cout << "FPS: " << fps << endl;
+//        cout << "Current Frame Time: " << currentFrame << endl;
+//        cout << "FPS: " << fps << endl;
         
         processAnimationFrames();
         
@@ -393,7 +396,7 @@ int main()
         
         projection = glm::perspective(glm::radians(cameraPtr->camera.fov), scene->layout.width / scene->layout.height, cameraPtr->camera.minDistance, cameraPtr->camera.maxDistance);
         view = lookAt(cameraPtr->transform.position, cameraPtr->transform.position + cameraPtr->transform.front, cameraPtr->transform.up);
-        textprojection = glm::ortho(0.0f, scene->layout.width, 0.0f, scene->layout.height);
+        textprojection = glm::ortho(0.0f, scene->layout.width * WIDTH_FACTOR, 0.0f, scene->layout.height * HEIGHT_FACTOR);
         
         if (shadows) {
             float shadowNearPlane = 0.0f;
@@ -674,7 +677,6 @@ void createProperties(Object* objPtr)
         }
         else if (entry.first.rfind("anim", 0) == 0) {
             string attr = entry.first;
-//            attr.erase(remove(attr.begin(), attr.end(), "anim"), attr.end());
             attr = attr.replace(0, 4, "");
             if (0 == attr.compare(attr.length() - 2, 2, "ts")) {
                 attr = attr.replace(attr.length() - 2, 2, "");
@@ -1699,11 +1701,10 @@ void drawScene(Object* objPtr)
             if (objPtr->shader.vertexCount > 1 && showJoints) {
                 if (objPtr->instance.instanced) {
                     glDrawArraysInstanced(GL_LINES, 0, objPtr->shader.vertexCount, objPtr->shader.instanceCount);
-                    glDrawArraysInstanced(GL_POINTS, 0, 1, objPtr->shader.instanceCount);
+                    glDrawArraysInstanced(GL_POINTS, 0, 2, objPtr->shader.instanceCount);
                 }
                 else {
                     glDrawArrays(GL_LINES, 0, objPtr->shader.vertexCount);
-//                    glDrawArrays(GL_POINTS, 0, 1);
                     glDrawArrays(GL_POINTS, 0, 2);
                 }
             }
@@ -1828,88 +1829,104 @@ void drawShadows(Object* objPtr, Object* shadowPtr, bool hidden)
 
 void processAnimationFrames()
 {
-    if (animStart < 0.0) {
-        if (!animReset) {
+    if (animationStart < 0.0) {
+        if (!animationReset) {
             for (int i = 0; i < animationPtrs.size(); i++) {
                 Animation* animPtr = animationPtrs[i];
                 stringstream ss(animPtr->objPtr);
                 void* blankPtr;
                 ss >> blankPtr;
                 Object* objPtr = reinterpret_cast<Object*>(blankPtr);
-                if (animPtr->animAttr == "trns")
+                if (animPtr->animAttr == "trns" && animPtr->initValue.size() > 0)
                     objPtr->transform.position = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
-                else if (animPtr->animAttr == "scal")
+                else if (animPtr->animAttr == "scal" && animPtr->initValue.size() > 0)
                     objPtr->transform.scale = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
-                else if (animPtr->animAttr == "fron")
+                else if (animPtr->animAttr == "fron" && animPtr->initValue.size() > 0)
                     objPtr->transform.front = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
-                else if (animPtr->animAttr == "left")
+                else if (animPtr->animAttr == "left" && animPtr->initValue.size() > 0)
                     objPtr->transform.left = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
-                else if (animPtr->animAttr == "up")
+                else if (animPtr->animAttr == "up" && animPtr->initValue.size() > 0)
                     objPtr->transform.up = glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]);
-                else if (animPtr->animAttr == "degr")
+                else if (animPtr->animAttr == "degr" && animPtr->initValue.size() > 0)
                     rotateJoint(objPtr->name, glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]) - objPtr->bone.rotationDegrees);
-                else if (animPtr->animAttr == "offs")
+                else if (animPtr->animAttr == "offs" && animPtr->initValue.size() > 0)
                     locateJoint(objPtr->name, glm::vec3(animPtr->initValue[0], animPtr->initValue[1], animPtr->initValue[2]) - objPtr->bone.locationOffset);
-                else if (animPtr->animAttr == "fov")
+                else if (animPtr->animAttr == "fov" && animPtr->initValue.size() > 0)
                     objPtr->camera.fov = animPtr->initValue[0];
                 
                 animPtr->initValue.clear();
             }
-            animReset = true;
+            animationReset = true;
+            vector<Object>::iterator live = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.name == "textlive"; });
+            if (live != objects.end())
+                live->objectPtr->hidden = true;
         }
         return;
     }
-    animReset = false;
     for (int i = 0; i < animationPtrs.size(); i++) {
-        float currentTime = glfwGetTime() - animStart;
+        animationReset = false;
+        vector<Object>::iterator live = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.name == "textlive"; });
+        if (live != objects.end())
+            live->objectPtr->hidden = false;
+        float currentTime = glfwGetTime() - animationStart;
         Animation* animPtr = animationPtrs[i];
         stringstream ss(animPtr->objPtr);
         void* blankPtr;
         ss >> blankPtr;
         Object* objPtr = reinterpret_cast<Object*>(blankPtr);
-        if (animPtr->animAttr == "trns" || animPtr->animAttr == "scal" || animPtr->animAttr == "fron" || animPtr->animAttr == "up" || animPtr->animAttr == "left" || animPtr->animAttr == "degr" || animPtr->animAttr == "offs") {
-            for (int j = 0; j < animPtr->timestamps.size(); j++) {
-                if (j == animPtr->timestamps.size() - 1) {
-                    if (currentTime >= animPtr->timestamps[j]) {
-                        if (animPtr->animAttr == "trns") {
-                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.position.x, objPtr->transform.position.y, objPtr->transform.position.z};
-                            objPtr->transform.position = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
-                        }
-                        else if (animPtr->animAttr == "scal") {
-                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.scale.x, objPtr->transform.scale.y, objPtr->transform.scale.z};
-                            objPtr->transform.scale = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
-                        }
-                        else if (animPtr->animAttr == "fron") {
-                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.front.x, objPtr->transform.front.y, objPtr->transform.front.z};
-                            objPtr->transform.front = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
-                        }
-                        else if (animPtr->animAttr == "up") {
-                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.up.x, objPtr->transform.up.y, objPtr->transform.up.z};
-                            objPtr->transform.up = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
-                        }
-                        else if (animPtr->animAttr == "left") {
-                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.left.x, objPtr->transform.left.y, objPtr->transform.left.z};
-                            objPtr->transform.left = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
-                        }
-                        else if (animPtr->animAttr == "degr") {
-                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.rotationDegrees.x, objPtr->bone.rotationDegrees.y, objPtr->bone.rotationDegrees.z};
-                            rotateJoint(objPtr->name, glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]) - objPtr->bone.rotationDegrees);
-                        }
-                        else if (animPtr->animAttr == "offs") {
-                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.locationOffset.x, objPtr->bone.locationOffset.y, objPtr->bone.locationOffset.z};
-                            locateJoint(objPtr->name, glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]) - objPtr->bone.locationOffset);
-                        }
+        
+        
+        for (int j = 0; j < animPtr->timestamps.size(); j++) {
+            if (j == animPtr->timestamps.size() - 1) {
+                if (currentTime >= animPtr->timestamps[j]) {
+                    if (animationLoop) {
+                        animationStart = glfwGetTime();
+                        return;
+                    }
+                    
+                    if (animPtr->animAttr == "trns") {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.position.x, objPtr->transform.position.y, objPtr->transform.position.z};
+                        objPtr->transform.position = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                    }
+                    else if (animPtr->animAttr == "scal") {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.scale.x, objPtr->transform.scale.y, objPtr->transform.scale.z};
+                        objPtr->transform.scale = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                    }
+                    else if (animPtr->animAttr == "fron") {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.front.x, objPtr->transform.front.y, objPtr->transform.front.z};
+                        objPtr->transform.front = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                    }
+                    else if (animPtr->animAttr == "up") {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.up.x, objPtr->transform.up.y, objPtr->transform.up.z};
+                        objPtr->transform.up = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                    }
+                    else if (animPtr->animAttr == "left") {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.left.x, objPtr->transform.left.y, objPtr->transform.left.z};
+                        objPtr->transform.left = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
+                    }
+                    else if (animPtr->animAttr == "degr") {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.rotationDegrees.x, objPtr->bone.rotationDegrees.y, objPtr->bone.rotationDegrees.z};
+                        rotateJoint(objPtr->name, glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]) - objPtr->bone.rotationDegrees);
+                    }
+                    else if (animPtr->animAttr == "offs") {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.locationOffset.x, objPtr->bone.locationOffset.y, objPtr->bone.locationOffset.z};
+                        locateJoint(objPtr->name, glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]) - objPtr->bone.locationOffset);
+                    }
+                    else if (animPtr->animAttr == "fov") {
+                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->camera.fov};
+                        objPtr->camera.fov = animPtr->values[j];
                     }
                 }
-                else {
-                    if (currentTime >= animPtr->timestamps[j] && currentTime < animPtr->timestamps[j + 1]) {
+            }
+            else {
+                if (currentTime >= animPtr->timestamps[j] && currentTime < animPtr->timestamps[j + 1]) {
+                    if (animPtr->animAttr == "trns" || animPtr->animAttr == "scal" || animPtr->animAttr == "fron" || animPtr->animAttr == "up" || animPtr->animAttr == "left" || animPtr->animAttr == "degr" || animPtr->animAttr == "offs") {
                         glm::vec3 prevValue = glm::vec3(animPtr->values[j * 3], animPtr->values[j * 3 + 1], animPtr->values[j * 3 + 2]);
                         glm::vec3 nextValue = glm::vec3(animPtr->values[(j + 1) * 3], animPtr->values[(j + 1) * 3 + 1], animPtr->values[(j + 1) * 3 + 2]);
                         float diffTime = animPtr->timestamps[j + 1] - animPtr->timestamps[j];
                         glm::vec3 diffValue = nextValue - prevValue;
                         float timeOfst = currentTime - animPtr->timestamps[j];
                         glm::vec3 valueOfst = diffValue * (timeOfst / diffTime);
-                        objPtr->transform.position = prevValue + valueOfst;
                         if (animPtr->animAttr == "trns") {
                             if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->transform.position.x, objPtr->transform.position.y, objPtr->transform.position.z};
                             objPtr->transform.position = prevValue + valueOfst;
@@ -1932,34 +1949,26 @@ void processAnimationFrames()
                         }
                         else if (animPtr->animAttr == "degr") {
                             if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.rotationDegrees.x, objPtr->bone.rotationDegrees.y, objPtr->bone.rotationDegrees.z};
-                            rotateJoint(objPtr->name, prevValue + valueOfst - objPtr->bone.rotationDegrees);
+                            rotateJoint(objPtr->name, prevValue + valueOfst - objPtr->objectPtr->bone.rotationDegrees);
+//                            vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "Spine"; });
+//                            cout << to_string(it->objectPtr->bone.rotationDegrees) << endl;
                         }
                         else if (animPtr->animAttr == "offs") {
                             if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->bone.locationOffset.x, objPtr->bone.locationOffset.y, objPtr->bone.locationOffset.z};
                             locateJoint(objPtr->name, prevValue + valueOfst - objPtr->bone.locationOffset);
                         }
                     }
-                }
-            }
-        }
-        else if (animPtr->animAttr == "fov") {
-            for (int j = 0; j < animPtr->timestamps.size(); j++) {
-                if (j == animPtr->timestamps.size() - 1) {
-                    if (currentTime >= animPtr->timestamps[j]) {
-                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->camera.fov};
-                        objPtr->camera.fov = animPtr->values[j];
-                    }
-                }
-                else {
-                    if (currentTime >= animPtr->timestamps[j] && currentTime < animPtr->timestamps[j + 1]) {
+                    else if (animPtr->animAttr == "fov") {
                         float prevValue = animPtr->values[j];
                         float nextValue = animPtr->values[j + 1];
                         float diffTime = animPtr->timestamps[j + 1] - animPtr->timestamps[j];
                         float diffValue = nextValue - prevValue;
                         float timeOfst = currentTime - animPtr->timestamps[j];
                         float valueOfst = diffValue * (timeOfst / diffTime);
-                        if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->camera.fov};
-                        objPtr->camera.fov = prevValue + valueOfst;
+                        if (animPtr->animAttr == "fov") {
+                            if (animPtr->initValue.size() == 0) animPtr->initValue = {objPtr->camera.fov};
+                            objPtr->camera.fov = prevValue + valueOfst;
+                        }
                     }
                 }
             }
@@ -1982,10 +1991,10 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
     }
     
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-        if (animStart < 0.0)
-            animStart = glfwGetTime();
+        if (animationStart < 0.0)
+            animationStart = glfwGetTime();
         else
-            animStart = -1;
+            animationStart = -1;
     }
     
     
@@ -2026,7 +2035,11 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
         if (commandKeySticked)
             showJoints = !showJoints;
         
-//        resetPose("hips");
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "leftleg"; });
+        if (it->objectPtr->bone.rotationDegrees == glm::vec3(0.0, 0.0, 0.0))
+            rotateJoint("leftleg", glm::vec3(97.12309067666857, -35.69096226260487, 46.546707835072226));
+        else
+            resetPose("hips");
 //
 //        shading = shading == "blinn-phong" ? "phong" : "blinn-phong";
 
@@ -2227,7 +2240,7 @@ void processContinuousInput(GLFWwindow* window)
         if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
             angle *= -1.0;
 //        rotateJoint("leftshoulder", glm::vec3(0.0, 0.0, angle));
-        rotateJoint("j1", glm::vec3(0.0, 0.0, angle));
+        rotateJoint("Spine", glm::vec3(0.0, 0.0, angle));
 //        float offset = 0.01f;
 //        if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
 //            offset *= -1.0;
@@ -2375,6 +2388,8 @@ void rotateJoint(string joint, glm::vec3 degrees)
         rootPtr = rootPtr->superObject;
     
     function<void(Object*)> lambdaFunc = [rootPtr, jo, &axis, &angle, &lambdaFunc](Object* obj) -> void {
+        if (obj->objectPtr->type == ObjectType::Region)
+            return;
         size_t vertLeng = obj->objectPtr->shader.vertices.size();
         glm::vec3 end = glm::vec3(obj->objectPtr->shader.vertices[vertLeng - 3],
                                 obj->objectPtr->shader.vertices[vertLeng - 2],
@@ -2434,6 +2449,9 @@ void rotateJoint(string joint, glm::vec3 degrees)
             glm::vec3 pos = glm::vec3(rootPtr->shader.vertices[indice * 3],
                                       rootPtr->shader.vertices[indice * 3 + 1],
                                       rootPtr->shader.vertices[indice * 3 + 2]);
+            if (indice == 4572) {
+                cout << "vertex no. " << indice << " rotating around [" << jo.x << " " << jo.y << " " << jo.z << "], old value: [" << pos.x << " " << pos.y << " " << pos.z << "]" << endl;
+            }
             pos = rotateVectorAroundAxis(pos - jo, axis, angle * obj->objectPtr->bone.weights[i]);
             pos += jo;
             rootPtr->shader.vertices[indice * 3] = pos.x;
@@ -2447,6 +2465,10 @@ void rotateJoint(string joint, glm::vec3 degrees)
             rootPtr->shader.normals[indice * 3] = nor.x;
             rootPtr->shader.normals[indice * 3 + 1] = nor.y;
             rootPtr->shader.normals[indice * 3 + 2] = nor.z;
+            if (indice == 4572) {
+                cout << "axis: " << axis.x << " " << axis.y << " " << axis.z << ", angle: " << angle << "; weight: " << obj->objectPtr->bone.weights[i] << endl;
+                cout << "vertex no. " << indice << " rotated around [" << jo.x << " " << jo.y << " " << jo.z << "], new value: [" << pos.x << " " << pos.y << " " << pos.z << "]\n" << endl;
+            }
         }
         
         for (Object* ptr : obj->objectPtr->subObjects)
@@ -2490,13 +2512,16 @@ void locateJoint(string joint, glm::vec3 offset)
                             it->objectPtr->shader.vertices[vertLeng - 2],
                             it->objectPtr->shader.vertices[vertLeng - 1]);
     
-    glm::vec3 adjustedOffset = it->objectPtr->bone.referenceXAxis * offset.x + it->objectPtr->bone.referenceYAxis * offset.y + it->objectPtr->bone.referenceZAxis * offset.z;
+    glm::vec3 adjustedOffset_ = it->objectPtr->bone.referenceXAxis * offset.x + it->objectPtr->bone.referenceYAxis * offset.y + it->objectPtr->bone.referenceZAxis * offset.z;
+    glm::vec3 adjustedOffset = glm::mat3(it->objectPtr->bone.referenceXAxis, it->objectPtr->bone.referenceYAxis, it->objectPtr->bone.referenceZAxis) * offset;
     
     Object* rootPtr = it->objectPtr;
     while (rootPtr->type != ObjectType::Model)
         rootPtr = rootPtr->superObject;
     
     function<void(Object*)> lambdaFunc = [rootPtr, jo, adjustedOffset, &lambdaFunc](Object* obj) -> void {
+        if (obj->objectPtr->type == ObjectType::Region)
+            return;
         size_t vertLeng = obj->objectPtr->shader.vertices.size();
         glm::vec3 end = glm::vec3(obj->objectPtr->shader.vertices[vertLeng - 3],
                                 obj->objectPtr->shader.vertices[vertLeng - 2],
