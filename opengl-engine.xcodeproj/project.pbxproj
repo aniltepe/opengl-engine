@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		104A4EEA286E55C700934EEF /* main18.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 104A4EE6286E552900934EEF /* main18.cpp */; };
 		104A4EEC286E55C700934EEF /* libfreetype.6.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 103DF67627D57E5C002B5716 /* libfreetype.6.dylib */; };
 		104A4EED286E55C700934EEF /* libGLEW.2.1.0.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA725EEE84B00DD9640 /* libGLEW.2.1.0.dylib */; };
 		104A4EEE286E55C700934EEF /* libglfw.3.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA625EEE84B00DD9640 /* libglfw.3.3.dylib */; };
@@ -15,6 +14,7 @@
 		104A4EF0286E55C700934EEF /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA225EEE7F700DD9640 /* IOKit.framework */; };
 		104A4EF1286E55C700934EEF /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA025EEE77900DD9640 /* Cocoa.framework */; };
 		104A4EF2286E55C700934EEF /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03C9E25EEE77200DD9640 /* OpenGL.framework */; };
+		104A4EFC286E63A400934EEF /* main18.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 104A4EFB286E63A400934EEF /* main18.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -31,9 +31,9 @@
 
 /* Begin PBXFileReference section */
 		103DF67627D57E5C002B5716 /* libfreetype.6.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfreetype.6.dylib; path = ../../../../../usr/local/Cellar/freetype/2.11.1/lib/libfreetype.6.dylib; sourceTree = "<group>"; };
-		104A4EE6286E552900934EEF /* main18.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = main18.cpp; path = "opengl-engine/src/main18.cpp"; sourceTree = "<group>"; };
 		104A4EF7286E55C700934EEF /* opengl-engine */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "opengl-engine"; sourceTree = BUILT_PRODUCTS_DIR; };
 		104A4EF8286E581600934EEF /* freetype */ = {isa = PBXFileReference; lastKnownFileType = folder; name = freetype; path = ../../../../../usr/local/Cellar/freetype/2.11.1/include/freetype2/freetype; sourceTree = "<group>"; };
+		104A4EFB286E63A400934EEF /* main18.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = main18.cpp; path = src/main18.cpp; sourceTree = "<group>"; };
 		10F03C9E25EEE77200DD9640 /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = System/Library/Frameworks/OpenGL.framework; sourceTree = SDKROOT; };
 		10F03CA025EEE77900DD9640 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		10F03CA225EEE7F700DD9640 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
@@ -63,7 +63,7 @@
 		10F03C8925EEE76300DD9640 = {
 			isa = PBXGroup;
 			children = (
-				104A4EE6286E552900934EEF /* main18.cpp */,
+				104A4EFB286E63A400934EEF /* main18.cpp */,
 				10F03C9325EEE76300DD9640 /* Products */,
 				10F03C9D25EEE77200DD9640 /* Frameworks */,
 			);
@@ -143,7 +143,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				104A4EEA286E55C700934EEF /* main18.cpp in Sources */,
+				104A4EFC286E63A400934EEF /* main18.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -158,7 +158,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				GCC_DYNAMIC_NO_PIC = NO;
-				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/opengl-engine/opengl-engine/include/**";
+				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/opengl-engine/include/**";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/usr/local/Cellar/glfw/3.3.2/lib,
@@ -178,7 +178,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				GCC_DYNAMIC_NO_PIC = NO;
-				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/opengl-engine/opengl-engine/include/**";
+				HEADER_SEARCH_PATHS = "/Users/nazimaniltepe/Documents/Projects/opengl-engine/include/**";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/usr/local/Cellar/glfw/3.3.2/lib,
