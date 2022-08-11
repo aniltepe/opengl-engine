@@ -159,7 +159,8 @@ struct Character {
     unsigned int advance;
 };
 
-string WORK_DIR = "/Users/nazimaniltepe/Documents/Projects/opengl-nscene/OpenGLTest4/";
+string SCENE_DIR = "/Users/nazimaniltepe/Documents/Projects/opengl-scene/archive/";
+string WORK_DIR = "/Users/nazimaniltepe/Documents/Projects/opengl-engine/opengl-engine/";
 int objIndex = 0;
 vector<Object> objects;
 Object* cameraPtr;
@@ -222,7 +223,7 @@ vector<T> processAttributeArray(string s)
 
 int main()
 {
-    Object* scene = createScene(WORK_DIR + "scene15.sce");
+    Object* scene = createScene(SCENE_DIR + "scene15.sce");
     
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
