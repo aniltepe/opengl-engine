@@ -30,8 +30,6 @@
 #include <regex>
 #include <map>
 #include <time.h>
-//#include <cstdlib>
-//#include <ctime>
 #include <random>
 using namespace std;
 
@@ -193,7 +191,7 @@ map<GLchar, Character> characters;
 string shading = "phong";
 bool gammaCorrection = false;
 bool multiSampling = false;
-bool showJoints = true;
+bool showJoints = false;
 bool shadows = false;
 vector<Object*> shadowFboPtrs;
 float shadowFarPlane = 25.0;
@@ -257,7 +255,7 @@ vector<T> processAttributeArray(string s)
 
 int main()
 {
-    Object* scene = createScene(SCENE_DIR + "scene19.sce");
+    Object* scene = createScene(SCENE_DIR + "scene19_separate.sce");
     
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -336,8 +334,8 @@ int main()
                 while (rootPtr->type != ObjectType::Model)
                     rootPtr = rootPtr->superObject;
                 vector<glm::mat3> instrnsTris;
-                for (int i = 0; i < obj->bone.indices.size(); i++) {
-                    int triIdx = obj->bone.indices[i];
+                for (int i = 0; i < obj->style.cusiarr1.size(); i++) {
+                    int triIdx = obj->style.cusiarr1[i];
 //                    if (find(obj->style.cusiarr1.begin(), obj->style.cusiarr1.end(), triIdx) == obj->style.cusiarr1.end())
 //                        continue;
                     int v0Idx = rootPtr->shader.faces[triIdx * 3];
@@ -1935,6 +1933,8 @@ void deleteScene(Object* objPtr)
 
 void drawShadows(Object* objPtr, Object* shadowPtr, bool hidden)
 {
+    if (!shadows)
+        return;
     if (objPtr->type == ObjectType::Model && objPtr->shader.vertices.size() > 0 && !objPtr->hidden) {
         glUseProgram(shadowPtr->shader.shaderID);
         glm::mat4 model = glm::translate(glm::mat4(1.0f), objPtr->transform.position);
@@ -1990,7 +1990,6 @@ void processAnimationFrames()
 {
     if (animationStart < 0.0) {
         if (!animationReset) {
-            cout << "animation end" << endl;
             for (int i = 0; i < animationPtrs.size(); i++) {
                 Animation* animPtr = animationPtrs[i];
                 stringstream ss(animPtr->objPtr);
@@ -2026,7 +2025,6 @@ void processAnimationFrames()
         }
         return;
     }
-    cout << "animation start" << endl;
     for (int i = 0; i < animationPtrs.size(); i++) {
         animationReset = false;
         vector<Object>::iterator live = find_if(objects.begin(), objects.end(), [] (Object obj) { return obj.name == "textlive"; });
@@ -2202,7 +2200,6 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
         
         if (keyZeroIndex == 0) {
             setHumanPose();
-//            setPoseTransformation("hips");
             setPoseTransformation("human");
             
 //            cout << "pos: " << cameraPtr->transform.position.x << " " << cameraPtr->transform.position.y << " " << cameraPtr->transform.position.z << endl;
@@ -2215,7 +2212,6 @@ void processDiscreteInput(GLFWwindow* window, int key, int scancode, int action,
         }
         else if (keyZeroIndex == 1) {
             resetHumanPose();
-//            setPoseTransformation("hips");
             setPoseTransformation("human");
             
             keyZeroIndex = 0;
@@ -2323,7 +2319,7 @@ void processContinuousInput(GLFWwindow* window)
     
     
     function<void(Object*, float)> translation = [&translation](Object* obj, float offset) {
-        obj->objectPtr->transform.position += glm::vec3(offset, 0.0, 0.0);
+        obj->objectPtr->transform.position += glm::vec3(0.0, 0.0, offset);
         for (int i = 0; i < obj->subObjects.size(); i++)
             translation(obj->subObjects[i], offset);
     };
@@ -2334,19 +2330,28 @@ void processContinuousInput(GLFWwindow* window)
             rotation(obj->subObjects[i], angle);
     };
     if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
-        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+//        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "lefteyeball"; });
 //        rotation(it->objectPtr, 1.0f);
-//        translation(it->objectPtr, 0.01f);
-        it->objectPtr->light.cutOff += 0.01f;
+//        translation(it->objectPtr, 0.0005f);
+//        it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "righteyeball"; });
+//        translation(it->objectPtr, 0.0005f);
+//        it->objectPtr->light.cutOff += 0.01f;
 //        it->objectPtr->light.outerCutOff += 0.01f;
-        
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "hips"; });
+        setJointDegrees(it->objectPtr->name, it->objectPtr->bone.rotationDegrees + glm::vec3(1.0, 0.0, 0.0));
+        setPoseTransformation("human");
     }
     if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
-        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "light1"; });
+//        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "lefteyeball"; });
 //        rotation(it->objectPtr, -1.0f);
-//        translation(it->objectPtr, -0.01f);
-        it->objectPtr->light.cutOff -= 0.01f;
+//        translation(it->objectPtr, -0.0005f);
+//        it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "righteyeball"; });
+//        translation(it->objectPtr, -0.0005f);
+//        it->objectPtr->light.cutOff -= 0.01f;
 //        it->objectPtr->light.outerCutOff -= 0.01f;
+        vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [](Object obj) { return obj.name == "hips"; });
+        setJointDegrees(it->objectPtr->name, it->objectPtr->bone.rotationDegrees + glm::vec3(-1.0, 0.0, 0.0));
+        setPoseTransformation("human");
     }
 
     
@@ -2520,8 +2525,17 @@ void setPoseTransformation(string rootModel)
     vector<Object>::iterator it = find_if(objects.begin(), objects.end(), [rootModel] (Object obj) { return obj.name == rootModel; });
     Object* rootPtr = it->objectPtr;
     Object* rootJoPtr = nullptr;
-    if (rootPtr->subObjects.size() > 0 && rootPtr->subObjects[0]->type == ObjectType::Joint)
-        rootJoPtr = rootPtr->subObjects[0]->objectPtr;
+    int rootJoIdx = 0; //default
+    int tempIdx = -1;
+    for (int i = 0; i < rootPtr->subObjects.size(); i++) {
+        if (rootPtr->subObjects[i]->type == ObjectType::Joint) {
+            tempIdx++;
+            if (tempIdx == rootJoIdx) {
+                rootJoPtr = rootPtr->subObjects[i]->objectPtr;
+                break;
+            }
+        }
+    }
     
     vector<Object*> chain;
     Object* temp = rootPtr;

@@ -7,14 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		104A4EEC286E55C700934EEF /* libfreetype.6.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 103DF67627D57E5C002B5716 /* libfreetype.6.dylib */; };
+		1029343028AC1EDE006920FF /* main19.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1029342F28AC1EDE006920FF /* main19.cpp */; };
 		104A4EED286E55C700934EEF /* libGLEW.2.1.0.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA725EEE84B00DD9640 /* libGLEW.2.1.0.dylib */; };
 		104A4EEE286E55C700934EEF /* libglfw.3.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA625EEE84B00DD9640 /* libglfw.3.3.dylib */; };
 		104A4EEF286E55C700934EEF /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA425EEE80000DD9640 /* CoreVideo.framework */; };
 		104A4EF0286E55C700934EEF /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA225EEE7F700DD9640 /* IOKit.framework */; };
 		104A4EF1286E55C700934EEF /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03CA025EEE77900DD9640 /* Cocoa.framework */; };
 		104A4EF2286E55C700934EEF /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10F03C9E25EEE77200DD9640 /* OpenGL.framework */; };
-		10C2C4562870CC8300056B99 /* main19.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 10C2C4552870CC8300056B99 /* main19.cpp */; };
+		10852ABD28BEBD460055AAB8 /* libfreetype.6.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 10852ABC28BEBD460055AAB8 /* libfreetype.6.dylib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -30,10 +30,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1029342F28AC1EDE006920FF /* main19.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = main19.cpp; path = src/main19.cpp; sourceTree = "<group>"; };
 		103DF67627D57E5C002B5716 /* libfreetype.6.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfreetype.6.dylib; path = ../../../../../usr/local/Cellar/freetype/2.11.1/lib/libfreetype.6.dylib; sourceTree = "<group>"; };
 		104A4EF7286E55C700934EEF /* opengl-engine */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "opengl-engine"; sourceTree = BUILT_PRODUCTS_DIR; };
 		104A4EF8286E581600934EEF /* freetype */ = {isa = PBXFileReference; lastKnownFileType = folder; name = freetype; path = ../../../../../usr/local/Cellar/freetype/2.11.1/include/freetype2/freetype; sourceTree = "<group>"; };
-		10C2C4552870CC8300056B99 /* main19.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = main19.cpp; path = src/main19.cpp; sourceTree = "<group>"; };
+		10852ABC28BEBD460055AAB8 /* libfreetype.6.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfreetype.6.dylib; path = ../../../../../usr/local/Cellar/freetype/2.12.1/lib/libfreetype.6.dylib; sourceTree = "<group>"; };
 		10F03C9E25EEE77200DD9640 /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = System/Library/Frameworks/OpenGL.framework; sourceTree = SDKROOT; };
 		10F03CA025EEE77900DD9640 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		10F03CA225EEE7F700DD9640 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
@@ -47,7 +48,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				104A4EEC286E55C700934EEF /* libfreetype.6.dylib in Frameworks */,
+				10852ABD28BEBD460055AAB8 /* libfreetype.6.dylib in Frameworks */,
 				104A4EED286E55C700934EEF /* libGLEW.2.1.0.dylib in Frameworks */,
 				104A4EEE286E55C700934EEF /* libglfw.3.3.dylib in Frameworks */,
 				104A4EEF286E55C700934EEF /* CoreVideo.framework in Frameworks */,
@@ -63,7 +64,7 @@
 		10F03C8925EEE76300DD9640 = {
 			isa = PBXGroup;
 			children = (
-				10C2C4552870CC8300056B99 /* main19.cpp */,
+				1029342F28AC1EDE006920FF /* main19.cpp */,
 				10F03C9325EEE76300DD9640 /* Products */,
 				10F03C9D25EEE77200DD9640 /* Frameworks */,
 			);
@@ -80,6 +81,7 @@
 		10F03C9D25EEE77200DD9640 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				10852ABC28BEBD460055AAB8 /* libfreetype.6.dylib */,
 				104A4EF8286E581600934EEF /* freetype */,
 				103DF67627D57E5C002B5716 /* libfreetype.6.dylib */,
 				10F03CA725EEE84B00DD9640 /* libGLEW.2.1.0.dylib */,
@@ -143,7 +145,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				10C2C4562870CC8300056B99 /* main19.cpp in Sources */,
+				1029343028AC1EDE006920FF /* main19.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -163,7 +165,7 @@
 					"$(inherited)",
 					/usr/local/Cellar/glfw/3.3.2/lib,
 					/usr/local/Cellar/glew/2.1.0_1/lib,
-					/usr/local/Cellar/freetype/2.11.1/lib,
+					/usr/local/Cellar/freetype/2.12.1/lib,
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.1;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -183,7 +185,7 @@
 					"$(inherited)",
 					/usr/local/Cellar/glfw/3.3.2/lib,
 					/usr/local/Cellar/glew/2.1.0_1/lib,
-					/usr/local/Cellar/freetype/2.11.1/lib,
+					/usr/local/Cellar/freetype/2.12.1/lib,
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.1;
 				PRODUCT_NAME = "$(TARGET_NAME)";
